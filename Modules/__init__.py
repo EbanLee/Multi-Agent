@@ -3,25 +3,18 @@ from typing  import Optional
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
-from utils import file_utils, functions
-import Agents
-
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 class Router:
-    def __init__(self, model_name, available_agents:Optional[list]=None, remember_turn:int=2, max_generate_token:int=256):
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            dtype=torch.float16,
-            device_map=DEVICE,
-            quantization_config = BitsAndBytesConfig(load_in_8bit=True)
-            )
-        self.available_agents = [] if not available_agents else available_agents
+    def __init__(self, model_registry, model_name, available_agents:Optional[dict]=None, remember_turn:int=2, max_generate_token:int=256):
+        loaded = model_registry(model_name)
+        self.tokenizer = loaded.tokenizer
+        self.model = loaded.model
+        self.available_agents = {} if not available_agents else available_agents
         self.remember_turn = remember_turn
         self.max_generate_token=max_generate_token
 
     def build_system_prompt(self, language = 'Korean'):
-        agent_descript_str = "\n".join([f"- {agent.name}: {agent.description}" for agent in self.available_agents])
+        agent_descript_str = "\n".join([f"- {name}: {agent.description}" for name, agent in self.available_agents.items()])
         return f"""
 You are the Router.
 Decide which Agent should handle the user's request.
@@ -79,23 +72,48 @@ Return exactly this JSON structure:
         )
         
         generated_output = output[0][len(inputs.input_ids[0]):].tolist()
-        
+        output_text = self.tokenizer.decode(generated_output, skip_special_tokens=True)
         print("\n---------------------------- [OUTPUT] ----------------------------\n")
-        print(self.tokenizer.decode(output[0], skip_special_tokens=False))
-        print("\n----------------------------------------------------------------------------------------------------------\n")
-        print(self.tokenizer.decode(generated_output, skip_special_tokens=False))
-        print(print(f"{len(generated_output)=}\n"))
+        print(output_text)
+        print(f"{len(generated_output)=}\n")
 
-# class Planner:
+        return output_text
+
+class Planner:
+    def __init__(self, model_registry, model_name, remember_turn:int=2, max_generate_token:int=512):
+        loaded = model_registry(model_name)
+        self.tokenizer = loaded.tokenizer
+        self.model = loaded.model
 
 
 
-
-class Orchestrator:
-    """
-    전체 흐름 관리하는 모듈
-    """
+# class Orchestrator:
+#     """
+#     전체 흐름 관리하는 모듈
+#     """
     
 
 
+
+class LoadLLM:
+    def __init__(self, model:AutoModelForCausalLM, tokenizer:AutoTokenizer):
+        self.model = model
+        self.tokenizer = tokenizer
+
+class ModelRegistry:
+    def __init__(self):
+        self.model_dict={}
+
+    def __call__(self, model_name):
+        if model_name not in self.model_dict:
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            model = AutoModelForCausalLM.from_pretrained(
+                        model_name,
+                        dtype=torch.float16,
+                        device_map=DEVICE,
+                        quantization_config = BitsAndBytesConfig(load_in_8bit=True)
+                    )
+            self.model_dict.update({model_name:LoadLLM(model=model, tokenizer=tokenizer)})
+            
+        return self.model_dict[model_name]
 

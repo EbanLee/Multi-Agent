@@ -5,9 +5,9 @@ from tools import Tool
 class WebSearchTool(Tool):
     name = "web_search"
     description = (
-        "- Use this tool to search the web."
-        "- Parameters:"
-        "  - \"query\": the search query string"
+        "- Use this tool to search the web.\n"
+        "- Parameters:\n"
+        "  - query: the search query string"
         )
 
     def __call__(self, query: str, results_num: int = 4) -> str:
