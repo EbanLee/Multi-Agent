@@ -51,23 +51,16 @@ Output rules:
 
 Valid output format:
 {{
-  "thought": "Reason for the decision",
   "action": 'search' or 'finish',
   "entity": "ONE entity only",
   "action_input": {{}}  // parameters
+  "thought": "Reason for the 'action'",
 }}
 
 Language rules:
 - "thought" must be answered in {language}.
 - Never use any language other than {language} or English.
 
-Entity handling:
-- Treat each requested entity separately. (e.g., each person, each object)
-- Query must be short, keyword-based, and focused.
-
-Finish rules:
-- Choose "finish" when all requested entities can be answered with known information.
-- If information is insufficient after a search, refine the query before retrying.
 """.strip()
 
     def generate(self, user_input, history, max_repeat=3, language='Korean'):
@@ -123,9 +116,7 @@ class FinalAnswerAgent(Agent):
         
 class EmailAgent(Agent):
     name = "Email Agent"
-    description = (
-        # "Use this agent If you need to read emails"
-    )
+    description = "Handle email-related tasks such as reading and writing emails."
 
     def __init__(self, model_registry, model_name):
         loaded = model_registry(model_name)       

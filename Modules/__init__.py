@@ -15,34 +15,58 @@ class Router:
 
     def build_system_prompt(self, language = 'Korean'):
         agent_descript_str = "\n".join([f"- {name}: {agent.description}" for name, agent in self.available_agents.items()])
+#         return f"""
+# You are the Router.
+# Do NOT answer the user. Output JSON only.
+
+# Available Agents:
+# {agent_descript_str}
+
+# Task:
+# - Split the user request into tasks (one objective per task). 
+# - For each task: choose one Agent from the Available Agents.
+# - If the request is ambiguous, set needs_clarification=true and tasks=[], and ask the user via clarifying_question in {language}.
+# - If a task explicitly requested by the user falls within the scope of a specific Agent, you MUST use that Agent.
+# - If changeable or time-sensitive information (e.g., role, price, ranking, recent events) is required, you MUST use the Search Agent.
+# - For requests about time-independent concepts (e.g., definitions, principles, theories, etc.), set direct_answer_possible=true and use Final Answer Agent.
+# - Write objective in English and {language} only.
+
+# Return exactly this JSON structure:
+# {{
+#   "direct_answer_possible": true|false,
+#   "needs_clarification": true|false,
+#   "clarifying_question": "",
+#   "tasks": [
+#     {{
+#       "objective": "",
+#       "agent": ""
+#     }}
+#   ]
+# }}
+# """.strip()
         return f"""
 You are the Router.
-Decide which Agent should handle the user's request.
 Do NOT answer the user. Output JSON only.
 
 Available Agents:
 {agent_descript_str}
 
 Task:
-- Split the user request into tasks (one objective per task).
-- For each task: set task_id as "t1","t2",... and choose exactly ONE agent from the Available Agents.
-- If ambiguous, set needs_clarification=true and add into clarifying_question in {language}.
-- If the information is changeable or time-sensitive (e.g., organization, role, price, ranking, status, recent events), or when the user explicitly requests a search, MUST use Search Agent.
-- For requests about time-independent concepts (e.g., definitions, principles, theories, etc.), set direct_answer_possible=true and use only Final Answer Agent.
-- Write objective in English only.
+- Select ALL agent types that are required from the Available Agents based on the user request.
+- If the request is ambiguous, set route=clarification and ask the user via clarifying_question in {language}.
+- If a task explicitly requested by the user falls within the scope of a specific Agent, you MUST use that Agent.
+- If changeable or time-sensitive information (e.g., role, price, ranking, recent events) is required, you MUST use the Search Agent.
+- For requests about time-independent concepts (e.g., definitions, principles, theories, etc.), set route=direct_answer and use only Final Answer Agent.
+- If using one agent, set route="single_agent".
+- If using multi-agent, set route="planner".
+- Write high_level_intent in English only.
 
-Return exactly this JSON structure:
+Return exactly:
 {{
-  "direct_answer_possible": true|false,
-  "needs_clarification": true|false,
-  "clarifying_question": "",
-  "tasks": [
-    {{
-      "task_id": "",
-      "objective": "",
-      "agent": "",
-    }}
-  ]
+  "route": "",
+  "using_agents": [],
+  "high_level_intent": "",
+  "clarifying_question": ""
 }}
 """.strip()
 
@@ -84,13 +108,14 @@ class Planner:
         loaded = model_registry(model_name)
         self.tokenizer = loaded.tokenizer
         self.model = loaded.model
+        self.remember_turn = remember_turn
+        self.max_generate_token = max_generate_token
+
+    # def build_system_prompt(self, language='Korean'):
 
 
+    # def generate(user_input, router_output, history, language):
 
-# class Orchestrator:
-#     """
-#     전체 흐름 관리하는 모듈
-#     """
     
 
 
