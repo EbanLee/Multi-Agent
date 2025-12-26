@@ -4,11 +4,14 @@ from tools import Tool
 
 class WebSearchTool(Tool):
     name = "web_search"
-    description = (
-        "- Use this tool to search the web.\n"
-        "- Parameters:\n"
-        "  - query: the search query string"
-        )
+    description="Search for query on the web."
+    args_schema={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string"},
+        },
+        "required": ["query"],
+    }
 
     def __call__(self, query: str, results_num: int = 4) -> str:
         """

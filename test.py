@@ -1,8 +1,11 @@
+import os
+
 from datetime import datetime
 
 import torch
+from dotenv import load_dotenv
 
-from tools import *
+from tools import email_tool
 from utils import functions, file_utils
 from Modules import Agents
 import Modules
@@ -114,9 +117,37 @@ ex)
 }
 """
 
+def email_tool_test():
+    load_dotenv()
+    
+    EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
+    APP_PASSWARD = os.getenv("APP_PASSWARD")
+    SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    IMAP_HOST = os.getenv("IMAP_HOST", "imap.gmail.com")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+
+    email_read_tool = email_tool.EmailReadTool(EMAIL_ADDRESS, APP_PASSWARD, IMAP_HOST)
+    email_result = email_read_tool(unseen_only=False, include_body_preview=True)
+    for email in email_result:
+      for key, val in email.items():
+          print(f"{key} - {val}")
+      print()
+
+    email_send_tool = email_tool.EmailSendTool(EMAIL_ADDRESS, APP_PASSWARD, SMTP_HOST, SMTP_PORT)
+
+
+def email_agent_test(model_registry):
+    agent = Agents.EmailAgent(model_registry, config["email_agent_model_name"])
+    
+
+
+    pass
+
 
 if __name__=="__main__":
     model_registry = Modules.ModelRegistry()
-    # router_test(model_registry)
+    router_test(model_registry)
     # planner_test(model_registry)
-    search_agent_test(model_registry)
+    # search_agent_test(model_registry)
+    # email_tool_test()
+    email_agent_test(model_registry)

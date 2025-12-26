@@ -1,8 +1,11 @@
 from abc import ABC
+import json
 
 import torch
 
+from utils import functions
 from tools.search_tool import WebSearchTool
+from tools.email_tool import EmailReadTool, EmailSendTool
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -37,14 +40,15 @@ class SearchAgent(Agent):
         self.search_tools = WebSearchTool()
     
     def build_system_prompt(self, language='Korean'):
+        tool_str = functions.dumps_json({'name': self.search_tools.name, 'description': self.search_tools.description, 'args_schema': self.search_tools.args_schema})
         return f"""
 You are a search-decision agent.
 
-You MUST NOT answer the user's question.
-You ONLY decide whether to 'search' or 'finish'.
+You NEVER generate answers to the user's request.
+You ONLY decide whether to call a tool or 'finish'.
 
-Search Tool description:
-{self.search_tools.description}
+You can use the following tool:
+{tool_str}
 
 Output rules:
 - Output EXACTLY one valid JSON object and nothing else.
@@ -53,7 +57,7 @@ Valid output format:
 {{
   "action": 'search' or 'finish',
   "entity": "ONE entity only",
-  "action_input": {{}}  // parameters
+  "action_input": {{}}  // parameters go here
   "thought": "Reason for the 'action'",
 }}
 
@@ -70,7 +74,12 @@ Language rules:
             history = history[1:]
         messages = [sys_prompt] + history
 
+        observation = None
+        result = []
         for _ in range(max_repeat):
+            if observation is not None:
+                messages.append({'role':'tool', 'content':observation})
+
             input_text = self.tokenizer.apply_chat_template(
                 messages,
                 tokenize=False,
@@ -96,7 +105,49 @@ Language rules:
             print(output_text)
             print(f"{len(generated_output)=}\n")
 
-            return output_text
+            messages.append({'role':'assistant', 'content':output_text})
+
+            try:
+                output_dict = functions.loads_json(output_text)
+            except json.JSONDecodeError:
+                observation = None
+                messages += [
+                    {
+                        "role": "user",
+                        "content": f"Not JSON. Respond again with ONLY one JSON object.",
+                    }
+                ]
+                continue
+
+            action = output_dict.get("action")
+            if action.strip().lower() == "finish":
+                break
+
+            action_input: dict[str, str] = output_dict.get("action_input")
+            
+            # 도구 사용 성공했을 때 만 result에 저장.
+            try:
+                observation = self.search_tools(**action_input)
+                print("---------- OBSERVATION ---------- \n", observation, "\n")
+            except Exception as e:
+                observation = functions.dumps_json(
+                    {
+                        "ok": False,
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                        "retryable": True,
+                    }
+                )
+                # messages+=[{'role': 'user', 'content': f"action={action} \naction_input={action_input} \n[tool call error] {e}\n\n Please answer again."}]
+                continue
+
+            result.append(observation)
+            observation = functions.dumps_json({"ok": True, "results": observation})
+
+        if not result:
+            return None
+
+        return result[-1]
 
 
 
@@ -109,8 +160,6 @@ class FinalAnswerAgent(Agent):
         self.tokenizer = loaded.tokenizer
         self.model = loaded.model
         self.remember_turn = remember_turn
-
-
 
 
         
