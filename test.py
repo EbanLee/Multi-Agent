@@ -55,34 +55,68 @@ def search_agent_test(model_registry):
 
 
 def planner_test(model_registry):
-    print("\nRouter Test!\n")
-    user_input = "김민혁에게서 온 이메일 내용을 읽고 그안에 있는 선수 이름을 검색해서 정보를 알려줘"
+    print("\nPlanner Test!\n")
+
+    agents = [
+        Agents.DummyAgent("model_name", name=Agents.SearchAgent.name, description=Agents.SearchAgent.description), 
+        Agents.DummyAgent("model_name", name=Agents.EmailAgent.name, description=Agents.EmailAgent.description), 
+        Agents.DummyAgent("model_name", name=Agents.FinalAnswerAgent.name, description=Agents.FinalAnswerAgent.description)
+        ]
+    agents = {agent.name:agent for agent in agents}
+
+    torch.cuda.empty_cache()
+    planner = Modules.Planner(model_registry, config["planner_model_name"], available_agents=agents)
+
+    user_input = "김준호에게서 온 이메일 내용을 읽고 거기에 있는 축구팀의 어제 경기 결과에 대해 답장해줘."
     dummy_router_output = f"""
 {{
-  "direct_answer_possible": false,
-  "needs_clarification": false,
-  "clarifying_question": "",
-  "tasks": [
-    {{
-      "task_id": "t1",
-      "objective": "Read the email from Kim Minhyuk and extract the player name.",
-      "agent": "Email Agent"
-    }},
-    {{
-      "task_id": "t2",
-      "objective": "Search for the player information based on the extracted name.",
-      "agent": "Search Agent"
-    }}
-  ]
+  "route": "planner",
+  "using_agents": ["Email Agent", "Search Agent"],
+  "high_level_intent": "Read the email from Kim Joonho, find the game result as requested in the email, summarize it, and send it back to Kim Joonho.",
+  "clarifying_question": ""
 }}
 """.strip()
     dummy_router_output = functions.loads_json(dummy_router_output)
     print(functions.dumps_json(dummy_router_output))
 
+    history = []
+    with torch.no_grad():
+        planner_output = planner.generate(user_input, dummy_router_output, history)
+
+    torch.cuda.empty_cache()
+
+"""
+ex)
+{
+  "tasks": [
+    {
+      "task_id": "t1",
+      "agent": "Email Agent",
+      "objective": "Read the email from Kim Joonho",
+      "depends_on": [],
+      "acceptance": "Successfully read the email from Kim Joonho"
+    },
+    {
+      "task_id": "t2",
+      "agent": "Search Agent",
+      "objective": "Find the game result as requested in the email",
+      "depends_on": ["t1"],
+      "acceptance": "Found the game result as requested in the email"
+    },
+    {
+      "task_id": "t3",
+      "agent": "Email Agent",
+      "objective": "Summarize the game result and send it back to Kim Joonho",
+      "depends_on": ["t2"],
+      "acceptance": "Summarized the game result and sent it back to Kim Joonho"
+    }
+  ]
+}
+"""
 
 
 if __name__=="__main__":
     model_registry = Modules.ModelRegistry()
-    router_test(model_registry)
-    # search_agent_test(model_registry)
+    # router_test(model_registry)
     # planner_test(model_registry)
+    search_agent_test(model_registry)
