@@ -20,7 +20,7 @@ def router_test(model_registry):
     agents = [
         Agents.DummyAgent("model_name", name=Agents.SearchAgent.name, description=Agents.SearchAgent.description), 
         Agents.DummyAgent("model_name", name=Agents.EmailAgent.name, description=Agents.EmailAgent.description), 
-        Agents.DummyAgent("model_name", name=Agents.FinalAnswerAgent.name, description=Agents.FinalAnswerAgent.description)
+        Agents.DummyAgent("model_name", name=Agents.AnswerAgent.name, description=Agents.AnswerAgent.description)
         ]
     agents = {agent.name:agent for agent in agents}
 
@@ -30,7 +30,7 @@ def router_test(model_registry):
     while True:
         user_input = input("입력: ")
         language = functions.detect_language(user_input)
-        user_input = f"[Current Time: {datetime.now().strftime('%Y-%m-%d')}]\n{user_input}"
+        # user_input = f"[Current Time: {datetime.now().strftime('%Y-%m-%d')}]\n[USER REQUEST]\n{user_input}"
 
         history = []    # {'role': "user", "content": "손흥민의 팀은?"}, {'role': "assistant", "content": "손흥민의 팀은 LAFC입니다."}
         router.model.eval()
@@ -63,19 +63,19 @@ def planner_test(model_registry):
     agents = [
         Agents.DummyAgent("model_name", name=Agents.SearchAgent.name, description=Agents.SearchAgent.description), 
         Agents.DummyAgent("model_name", name=Agents.EmailAgent.name, description=Agents.EmailAgent.description), 
-        Agents.DummyAgent("model_name", name=Agents.FinalAnswerAgent.name, description=Agents.FinalAnswerAgent.description)
+        Agents.DummyAgent("model_name", name=Agents.AnswerAgent.name, description=Agents.AnswerAgent.description)
         ]
     agents = {agent.name:agent for agent in agents}
 
     torch.cuda.empty_cache()
     planner = Modules.Planner(model_registry, config["planner_model_name"], available_agents=agents)
 
-    user_input = "김준호에게서 온 이메일 내용을 읽고 거기에 있는 축구팀의 어제 경기 결과에 대해 답장해줘."
+    user_input = "무신사에서 온 메일 요약해서 김민혁에게 보내줘"
     dummy_router_output = f"""
 {{
   "route": "planner",
-  "using_agents": ["Email Agent", "Search Agent"],
-  "high_level_intent": "Read the email from Kim Joonho, find the game result as requested in the email, summarize it, and send it back to Kim Joonho.",
+  "using_agents": ["Email Agent", "Answer Agent"],
+  "high_level_intent": "Summarize the email from Muji and send it to Kim Minhyuk.",
   "clarifying_question": ""
 }}
 """.strip()
@@ -88,34 +88,6 @@ def planner_test(model_registry):
 
     torch.cuda.empty_cache()
 
-"""
-ex)
-{
-  "tasks": [
-    {
-      "task_id": "t1",
-      "agent": "Email Agent",
-      "objective": "Read the email from Kim Joonho",
-      "depends_on": [],
-      "acceptance": "Successfully read the email from Kim Joonho"
-    },
-    {
-      "task_id": "t2",
-      "agent": "Search Agent",
-      "objective": "Find the game result as requested in the email",
-      "depends_on": ["t1"],
-      "acceptance": "Found the game result as requested in the email"
-    },
-    {
-      "task_id": "t3",
-      "agent": "Email Agent",
-      "objective": "Summarize the game result and send it back to Kim Joonho",
-      "depends_on": ["t2"],
-      "acceptance": "Summarized the game result and sent it back to Kim Joonho"
-    }
-  ]
-}
-"""
 
 def email_tool_test():
     load_dotenv()
@@ -126,8 +98,8 @@ def email_tool_test():
     IMAP_HOST = os.getenv("IMAP_HOST", "imap.gmail.com")
     SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 
-    email_read_tool = email_tool.EmailReadTool(EMAIL_ADDRESS, APP_PASSWARD, IMAP_HOST)
-    email_result = email_read_tool(unseen_only=False, include_body_preview=True)
+    email_read_tool = email_tool.EmailSearchTool(EMAIL_ADDRESS, APP_PASSWARD, IMAP_HOST)
+    email_result = email_read_tool(unseen_only=False, subject_contains="무신사", from_contains=None)
     for email in email_result:
       for key, val in email.items():
           print(f"{key} - {val}")
@@ -137,16 +109,61 @@ def email_tool_test():
 
 
 def email_agent_test(model_registry):
-    agent = Agents.EmailAgent(model_registry, config["email_agent_model_name"])
+    print("\nEmail Agent Test!\n")
+
+    load_dotenv()
     
+    EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
+    APP_PASSWARD = os.getenv("APP_PASSWARD")
+    SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    IMAP_HOST = os.getenv("IMAP_HOST", "imap.gmail.com")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+    
+    tool_registry = [email_tool.EmailSearchTool(email_addr=EMAIL_ADDRESS, app_password=APP_PASSWARD, imap_host=IMAP_HOST), email_tool.EmailGetTool(EMAIL_ADDRESS, APP_PASSWARD, IMAP_HOST), email_tool.EmailSendTool(email_addr=EMAIL_ADDRESS, app_password=APP_PASSWARD, smtp_host=SMTP_HOST, smtp_port=SMTP_PORT)]
+    tool_registry = {t.name:t for t in tool_registry}
 
+    agent = Agents.EmailAgent(model_registry, model_name=config["email_agent_model_name"], tool_registry=tool_registry)
+    
+    user_input = "무신사에서 온 메일 요약해서 김민혁에게 보내줘"
+    tasks = [
+      {
+        "task_id": "t1",
+        "agent": "Email Agent",
+        "objective": "Read the email from Muji on the Muji website.",
+        "depends_on": [],
+        "acceptance": "The email has been successfully read from Muji."
+      },
+      {
+        "task_id": "t2",
+        "agent": "Answer Agent",
+        "objective": "Summarize the content of the email from Muji.",
+        "depends_on": ["t1"],
+        "acceptance": "The email content has been summarized."
+      },
+      {
+        "task_id": "t3",
+        "agent": "Email Agent",
+        "objective": "Send the summarized email to Kim Minhyuk.",
+        "depends_on": ["t2"],
+        "acceptance": "The summarized email has been successfully sent to Kim Minhyuk."
+      }
+    ]
 
-    pass
+    history = []
+    for task in tasks:
+        if task['agent']=="Email Agent":
+            print("\nSTART! START! START! START! START! START! START! START! START! START! START! START! START! START! \n")
+            input_task = {'objective': task['objective'], 'acceptance': task['acceptance']}
+            result = agent.generate(user_input, input_task, history)
+            break
+        print(result)
+
+    
 
 
 if __name__=="__main__":
     model_registry = Modules.ModelRegistry()
-    router_test(model_registry)
+    # router_test(model_registry)
     # planner_test(model_registry)
     # search_agent_test(model_registry)
     # email_tool_test()

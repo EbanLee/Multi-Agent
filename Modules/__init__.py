@@ -25,18 +25,17 @@ Available Agents:
 {agent_descript_str}
 
 Task:
-- Select ALL agent types that are required from the Available Agents based on the user request.
-- If the request is ambiguous, set route=clarification and ask the user via clarifying_question in {language}.
-- If a task explicitly requested by the user falls within the scope of a specific Agent, you MUST use that Agent.
-- If changeable or time-sensitive information (e.g., role, price, ranking, recent events) is required, you should use the Search Agent.
-- For requests about time-independent concepts (e.g., definitions, principles, theories, etc.), set route=direct_answer and use only Final Answer Agent.
-- If using one agent, set route="single_agent".
-- If using multi-agent, set route="planner".
+- If ambiguous, route="clarification" and ask in Korean.
+- If user requests summary/rewrite/translation/formatting -> include Answer Agent.
+- If user requests email-related tasks -> include Email Agent
+- If changeable or time-sensitive information (e.g., role, price, ranking, recent events) is required, include Search Agent.
+- For questions about time-independent concepts (e.g., definitions, principles, theories, etc.), set route=direct_answer and use only Answer Agent.
+- using one agent → single_agent, using multi-agent → planner.
 - Write high_level_intent in English.
 
 Return exactly:
 {{
-  "route": "",
+  "route": "direct_answer" | "single_agent" | "planner" | "clarification",
   "using_agents": [],
   "high_level_intent": "",
   "clarifying_question": ""

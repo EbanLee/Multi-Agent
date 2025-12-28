@@ -5,7 +5,6 @@ import torch
 
 from utils import functions
 from tools.search_tool import WebSearchTool
-from tools.email_tool import EmailReadTool, EmailSendTool
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -24,7 +23,7 @@ class DummyAgent(Agent):
 
 class SearchAgent(Agent):
     name = "Search Agent"
-    description = "Search the web for the information."
+    description = "fetch information from the web."
     # (
     #     "Use this agent when answering the question requires checking current or "
     #     "changing facts, numeric values, or official sources, even if the question "
@@ -55,10 +54,9 @@ Output rules:
 
 Valid output format:
 {{
-  "action": 'search' or 'finish',
-  "entity": "ONE entity only",
+  "action": "search" | "finish",
   "action_input": {{}}  // parameters go here
-  "thought": "Reason for the 'action'",
+  "thought": "Reason for the action",
 }}
 
 Language rules:
@@ -67,7 +65,7 @@ Language rules:
 
 """.strip()
 
-    def generate(self, user_input, history, max_repeat=3, language='Korean'):
+    def generate(self, user_input, task, history, max_repeat=3, language='Korean'):
         history = history[max(0, len(history)-2*self.remember_turn):] + [{'role': 'user', 'content': user_input}]   # 사용할 history만 뽑기
         sys_prompt = {'role': 'system', 'content': self.build_system_prompt(language)}
         if history[0]['role']=='system':
@@ -128,7 +126,7 @@ Language rules:
             # 도구 사용 성공했을 때 만 result에 저장.
             try:
                 observation = self.search_tools(**action_input)
-                print("---------- OBSERVATION ---------- \n", observation, "\n")
+                # print("---------- OBSERVATION ---------- \n", observation, "\n")
             except Exception as e:
                 observation = functions.dumps_json(
                     {
@@ -151,9 +149,9 @@ Language rules:
 
 
 
-class FinalAnswerAgent(Agent):
-    name = "Final Answer Agent"
-    description = "Generates a final answer."
+class AnswerAgent(Agent):
+    name = "Answer Agent"
+    description = "Generate text (summary, rewrite, translation, formatting)."
 
     def __init__(self, model_registry, model_name, remember_turn=2):
         loaded = model_registry(model_name)       
@@ -167,7 +165,135 @@ class EmailAgent(Agent):
     name = "Email Agent"
     description = "Handle email-related tasks such as reading and writing emails."
 
-    def __init__(self, model_registry, model_name):
+    def __init__(self, model_registry, model_name, tool_registry:dict, remember_turn=2, max_generate_token=128):
         loaded = model_registry(model_name)       
         self.tokenizer = loaded.tokenizer
         self.model = loaded.model
+        self.remember_turn = remember_turn
+        self.max_generate_token = max_generate_token
+        self.tool_registry = tool_registry
+
+    def build_system_prompt(self, language='Korean'):
+        tool_str = "\n".join([f"- {name}:\n{functions.dumps_json({'description': tool.description, 'args_schema': tool.args_schema})}\n" for name, tool in self.tool_registry.items()])
+        return f"""
+You are an Email Decision Agent.
+
+Your role:
+- You do NOT answer the user's request.
+- You ONLY decide whether to call an email tool or finish.
+
+Available Tools:
+{tool_str}
+
+Output rules:
+- Output EXACTLY one valid JSON object and nothing else.
+
+Valid output schema:
+{{
+  "action": "tool_call" | "finish",
+  "tool_name": tool_name | null,
+  "tool_args": object | null,
+  "finish_reason": "done" | "need_user_input" | null,
+  "missing_fields": ["to", "subject", "body_text"],
+  "thought": "..."
+}}
+
+Decision rules:
+1. If the user asks to read, check, find, or list emails → use the appropriate read tool.
+2. If the user asks to send an email:
+   - Only call a send tool when ALL required fields (to, subject, body_text) are explicitly provided.
+   - Never guess missing email addresses, subjects, or message content.
+   - If any required field is missing, choose action="finish" and explain what is missing.
+3. tool_name MUST be exactly one of the tool names listed in Available Tools.
+4. tool_args MUST strictly follow the selected tool's args_schema.
+
+Language rules:
+- "thought" must be answered in {language}.
+- Never use any language other than {language} or English.
+""".strip()
+
+    def generate(self, user_input, task, history, language='Korean', max_repeat=3):
+        history = history[max(0, len(history)-2*self.remember_turn):] + [{'role': 'user', 'content': f"USER INPUT:\n{user_input}\n\nTASK:\n{functions.dumps_json(task)}"}]   # 사용할 history만 뽑기
+        sys_prompt = {'role': 'system', 'content': self.build_system_prompt(language)}
+        if history[0]['role']=='system':
+            history = history[1:]
+        messages = [sys_prompt] + history
+
+        observation = None
+        result = []
+        for _ in range(max_repeat):
+            if observation is not None:
+                messages.append({'role':'tool', 'content':observation})
+
+            input_text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
+            print(f"\n---------------------------- [INPUT] ----------------------------\n{input_text}\n")
+
+            inputs = self.tokenizer(
+                input_text,
+                return_tensors='pt',
+            )
+
+            output = self.model.generate(
+                **inputs.to(DEVICE),
+                max_new_tokens = self.max_generate_token,
+                eos_token_id = self.tokenizer.eos_token_id,
+                pad_token_id = self.tokenizer.pad_token_id
+            )
+
+            generated_output = output[0][len(inputs.input_ids[0]):].tolist()
+            output_text = self.tokenizer.decode(generated_output, skip_special_tokens=True)
+            print("\n---------------------------- [OUTPUT] ----------------------------\n")
+            print(output_text)
+            print(f"{len(generated_output)=}\n")
+
+            messages.append({'role':'assistant', 'content':output_text})
+
+            try:
+                output_dict = functions.loads_json(output_text)
+            except json.JSONDecodeError:
+                observation = None
+                messages += [
+                    {
+                        "role": "user",
+                        "content": f"Not JSON. Respond again with ONLY one JSON object.",
+                    }
+                ]
+                continue
+
+            action = output_dict.get("action")
+            if action.strip().lower() == "finish":
+                break
+            
+            tool_name = output_dict.get("tool_name")
+            tool_args: dict[str, str] = output_dict.get("tool_args")
+            
+            observation = self.tool_registry[tool_name](**tool_args)
+            print(observation)
+            exit()
+            # 도구 사용 성공했을 때 만 result에 저장.
+            try:
+                observation = self.tool_registry[tool_name](**tool_args)
+                print("---------- OBSERVATION ---------- \n", observation, "\n")
+            except Exception as e:
+                observation = functions.dumps_json(
+                    {
+                        "ok": False,
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                        "retryable": True,
+                    }
+                )
+                # messages+=[{'role': 'user', 'content': f"action={action} \naction_input={action_input} \n[tool call error] {e}\n\n Please answer again."}]
+                continue
+
+            result.append(observation)
+            observation = functions.dumps_json({"ok": True, "results": observation})
+
+        if not result:
+            return None
+
+        return result[-1]
