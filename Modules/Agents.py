@@ -30,13 +30,14 @@ class SearchAgent(Agent):
     #     "does not explicitly mention recency."
     # )
 
-    def __init__(self, model_registry, model_name, remember_turn=2, max_generate_token=128):
+    def __init__(self, model_registry, model_name, remember_turn=2, max_generate_token=128, max_repeat=3):
         loaded = model_registry(model_name)
         self.tokenizer = loaded.tokenizer
         self.model = loaded.model
         self.remember_turn = remember_turn
         self.max_generate_token = max_generate_token
         self.search_tools = WebSearchTool()
+        self.max_repeat = max_repeat
     
     def build_system_prompt(self, language='Korean'):
         tool_str = functions.dumps_json({'name': self.search_tools.name, 'description': self.search_tools.description, 'args_schema': self.search_tools.args_schema})
@@ -60,12 +61,12 @@ Valid output format:
 }}
 
 Language rules:
-- "thought" must be answered in {language}.
-- Never use any language other than {language} or English.
+- "thought" is answered in English.
+- Never use any language other than {language} and English.
 
 """.strip()
 
-    def generate(self, user_input, task, history, max_repeat=3, language='Korean'):
+    def generate(self, user_input, task, history, language='Korean'):
         history = history[max(0, len(history)-2*self.remember_turn):] + [{'role': 'user', 'content': user_input}]   # 사용할 history만 뽑기
         sys_prompt = {'role': 'system', 'content': self.build_system_prompt(language)}
         if history[0]['role']=='system':
@@ -74,7 +75,7 @@ Language rules:
 
         observation = None
         result = []
-        for _ in range(max_repeat):
+        for _ in range(self.max_repeat):
             if observation is not None:
                 messages.append({'role':'tool', 'content':observation})
 
@@ -151,7 +152,7 @@ Language rules:
 
 class AnswerAgent(Agent):
     name = "Answer Agent"
-    description = "Generate text (summary, rewrite, translation, formatting)."
+    description = "Handles language-level tasks such as summarization, translation, rewriting, formatting, and final user-facing responses."
 
     def __init__(self, model_registry, model_name, remember_turn=2):
         loaded = model_registry(model_name)       
@@ -165,13 +166,14 @@ class EmailAgent(Agent):
     name = "Email Agent"
     description = "Handle email-related tasks such as reading and writing emails."
 
-    def __init__(self, model_registry, model_name, tool_registry:dict, remember_turn=2, max_generate_token=128):
+    def __init__(self, model_registry, model_name, tool_registry:dict, remember_turn=2, max_generate_token=256, max_repeat=6):
         loaded = model_registry(model_name)       
         self.tokenizer = loaded.tokenizer
         self.model = loaded.model
         self.remember_turn = remember_turn
         self.max_generate_token = max_generate_token
         self.tool_registry = tool_registry
+        self.max_repeat = max_repeat
 
     def build_system_prompt(self, language='Korean'):
         tool_str = "\n".join([f"- {name}:\n{functions.dumps_json({'description': tool.description, 'args_schema': tool.args_schema})}\n" for name, tool in self.tool_registry.items()])
@@ -180,40 +182,39 @@ You are an Email Decision Agent.
 
 Your role:
 - You do NOT answer the user's request.
-- You ONLY decide whether to call an email tool or finish.
+- You ONLY decide whether to call one email tool or finish.
 
 Available Tools:
 {tool_str}
 
-Output rules:
-- Output EXACTLY one valid JSON object and nothing else.
-
-Valid output schema:
-{{
-  "action": "tool_call" | "finish",
-  "tool_name": tool_name | null,
-  "tool_args": object | null,
-  "finish_reason": "done" | "need_user_input" | null,
-  "missing_fields": ["to", "subject", "body_text"],
-  "thought": "..."
-}}
-
 Decision rules:
-1. If the user asks to read, check, find, or list emails → use the appropriate read tool.
-2. If the user asks to send an email:
+1. Reading/listing: if message_id is unknown, call search_emails first.
+2. Getting body: use get_email (or get_emails for multiple).
+3. Sending email:
    - Only call a send tool when ALL required fields (to, subject, body_text) are explicitly provided.
    - Never guess missing email addresses, subjects, or message content.
    - If any required field is missing, choose action="finish" and explain what is missing.
-3. tool_name MUST be exactly one of the tool names listed in Available Tools.
-4. tool_args MUST strictly follow the selected tool's args_schema.
+4. tool_name MUST be exactly one of the tool names listed in Available Tools.
+5. tool_args MUST strictly follow the selected tool's args_schema.
+6. Only act within TASK.
 
 Language rules:
-- "thought" must be answered in {language}.
-- Never use any language other than {language} or English.
+- "thought" is answered in English.
+- Never use any language other than {language} and English.
+
+Output MUST be exactly one JSON and nothing else:
+{{
+  "action": "tool_call" | "finish",
+  "tool_name": string | null,
+  "tool_args": object | null,
+  "finish_reason": "done" | "need_user_input" | null,
+  "missing_fields": string[],
+  "thought": string
+}}
 """.strip()
 
-    def generate(self, user_input, task, history, language='Korean', max_repeat=3):
-        history = history[max(0, len(history)-2*self.remember_turn):] + [{'role': 'user', 'content': f"USER INPUT:\n{user_input}\n\nTASK:\n{functions.dumps_json(task)}"}]   # 사용할 history만 뽑기
+    def generate(self, user_input, task, history, language='Korean'):
+        history = history[max(0, len(history)-2*self.remember_turn):] + [{'role': 'user', 'content': f"[USER INPUT]:\n{user_input}\n\n[TASK]:\n{functions.dumps_json(task)}"}]   # 사용할 history만 뽑기
         sys_prompt = {'role': 'system', 'content': self.build_system_prompt(language)}
         if history[0]['role']=='system':
             history = history[1:]
@@ -221,7 +222,7 @@ Language rules:
 
         observation = None
         result = []
-        for _ in range(max_repeat):
+        for _ in range(self.max_repeat):
             if observation is not None:
                 messages.append({'role':'tool', 'content':observation})
 
@@ -272,8 +273,6 @@ Language rules:
             tool_args: dict[str, str] = output_dict.get("tool_args")
             
             observation = self.tool_registry[tool_name](**tool_args)
-            print(observation)
-            exit()
             # 도구 사용 성공했을 때 만 result에 저장.
             try:
                 observation = self.tool_registry[tool_name](**tool_args)
@@ -284,7 +283,6 @@ Language rules:
                         "ok": False,
                         "error_type": type(e).__name__,
                         "error_message": str(e),
-                        "retryable": True,
                     }
                 )
                 # messages+=[{'role': 'user', 'content': f"action={action} \naction_input={action_input} \n[tool call error] {e}\n\n Please answer again."}]

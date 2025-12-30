@@ -7,7 +7,7 @@ from utils import functions
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 class Router:
-    def __init__(self, model_registry, model_name, available_agents:Optional[dict]=None, remember_turn:int=2, max_generate_token:int=256):
+    def __init__(self, model_registry, model_name, available_agents:Optional[dict]=None, remember_turn:int=2, max_generate_token:int=128):
         loaded = model_registry(model_name)
         self.tokenizer = loaded.tokenizer
         self.model = loaded.model
@@ -24,54 +24,97 @@ Do NOT answer the user. Output JSON only.
 Available Agents:
 {agent_descript_str}
 
-Task:
-- If ambiguous, route="clarification" and ask in Korean.
-- If user requests summary/rewrite/translation/formatting -> include Answer Agent.
-- If user requests email-related tasks -> include Email Agent
-- If changeable or time-sensitive information (e.g., role, price, ranking, recent events) is required, include Search Agent.
-- For questions about time-independent concepts (e.g., definitions, principles, theories, etc.), set route=direct_answer and use only Answer Agent.
-- using one agent → single_agent, using multi-agent → planner.
-- Write high_level_intent in English.
+route decision:
+- route MUST be exactly one of: "single_agent", "planner", "clarification".
+- If required information for an action is missing or the request has unresolved references,
+  route="clarification" and ask in {language}.
+- Otherwise, determine using_agents first:
+  - If using_agents contains 2+ agents, route="planner".
+  - Else if only one agent is in using_agents, route="single_agent".
 
-Return exactly:
+Rules:
+- If the user requests an EMAIL OPERATION (read/search/list/send/reply/forward) on emails,
+  using_agents MUST include "Email Agent".
+- If the user requests text generation/transformation (summarize/translate/rewrite/format) of content,
+  using_agents MUST include "Answer Agent".
+- If the request requires changeable or time-sensitive information,
+  using_agents MUST include "Search Agent".
+
+preserve_spans:
+- ALWAYS include user-provided proper nouns and literal identifiers verbatim
+  (e.g., person/org/service/app names, emails, IDs, dates, file names).
+- ALSO include any user-provided string explicitly used to select, filter, or target items.
+- Do not translate, modify, or normalize preserved strings.
+- preserve_spans MUST follow the order of appearance in the user input.
+- If the same string appears multiple times, include it only once at its first occurrence.
+- preserve_spans is referenced as {{P0}},{{P1}},... in high_level_intent by index.
+
+Write high_level_intent in English.
+
+high_level_intent template rules:
+- high_level_intent MUST be abstract and MUST NOT contain any substring from preserve_spans (use {{Pn}} placeholders instead).
+- If preserve_spans is non-empty, high_level_intent MUST reference preserved values ONLY via indexed placeholders {{P0}}, {{P1}}, ...
+- Each placeholder {{Pn}} refers to preserve_spans[n] by index.
+- Use a clear, action-oriented sentence suitable for task planning
+  (e.g., "Search for {{P0}} and send the results to {{P1}} via email.").
+
+Output JSON only:
 {{
-  "route": "direct_answer" | "single_agent" | "planner" | "clarification",
+  "route": "single_agent" | "planner" | "clarification",
+  "clarifying_question": "",
   "using_agents": [],
-  "high_level_intent": "",
-  "clarifying_question": ""
+  "preserve_spans": [],
+  "high_level_intent": ""
 }}
 """.strip()
 
     def generate(self, user_input:str, history:list, language="Korean"):
-        messages = history[max(0, len(history) - self.remember_turn*2):]+[{'role': "user", "content": user_input}]
+        messages = history[max(0, len(history) - self.remember_turn*2):]+[{'role': "user", "content": user_input.strip()}]
         if messages[0]['role']=="system":
             messages = messages[1:]
         messages = [{'role': "system", 'content': self.build_system_prompt(language)}] + messages
-        input_text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        print(f"\n---------------------------- [INPUT] ----------------------------\n{input_text}\n")
+        for _ in range(3):
+            input_text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            print(f"\n---------------------------- [INPUT] ----------------------------\n{input_text}\n")
 
-        inputs = self.tokenizer(
-          input_text,
-          return_tensors='pt'
-        )
+            inputs = self.tokenizer(
+            input_text,
+            return_tensors='pt'
+            )
 
-        output = self.model.generate(
-            **inputs.to(DEVICE),
-            eos_token_id = self.tokenizer.eos_token_id,
-            pad_token_id = self.tokenizer.eos_token_id,
-            max_new_tokens = self.max_generate_token,
-            temperature=0.1
-        )
-        
-        generated_output = output[0][len(inputs.input_ids[0]):].tolist()
-        output_text = self.tokenizer.decode(generated_output, skip_special_tokens=True)
-        print("\n---------------------------- [OUTPUT] ----------------------------\n")
-        print(output_text)
-        print(f"{len(generated_output)=}\n")
+            output = self.model.generate(
+                **inputs.to(DEVICE),
+                eos_token_id = self.tokenizer.eos_token_id,
+                pad_token_id = self.tokenizer.eos_token_id,
+                max_new_tokens = self.max_generate_token,
+                temperature=0.1
+            )
+            
+            generated_output = output[0][len(inputs.input_ids[0]):].tolist()
+            output_text = self.tokenizer.decode(generated_output, skip_special_tokens=True)
+            messages += [
+                    {
+                        "role": "assistant",
+                        "content": output_text,
+                    }
+                ]
+            print("\n---------------------------- [OUTPUT] ----------------------------\n")
+            print(output_text)
+            print(f"{len(generated_output)=}\n")
+            try:
+                output_dict = functions.loads_json(output_text)
+                break
+            except Exception:
+                messages += [
+                    {
+                        "role": "user",
+                        "content": f"Not JSON. Respond again with ONLY one JSON object.",
+                    }
+                ]
 
         return output_text
 
@@ -95,30 +138,33 @@ Available Agents:
 {agent_descript_str}
 
 Input:
-- Router output JSON: using_agents, high_level_intent.
 - user's input
+- Router output JSON: using_agents, high_level_intent, preserve_spans.
 
 Goal:
-- Plan a list of necessary tasks based on the user's input and high_level_intent.
-- Each task must have exactly ONE objective and be assigned to exactly ONE agent from using_agents.
+- Plan a list of necessary tasks based on the Input.
+- Each task must have exactly ONE objective, which is ONE atomic action, and be assigned to exactly ONE agent from using_agents.
 
-Rules:
-- Split by individual entities and actions when they require separate outputs or different agents.
-- Preserve dependencies: later task must include the task_id of the earlier task in depends_on.
-- Write objectives and acceptance in English.
+Task:
+- Each task MUST represent exactly one atomic action. The objective must describe only that action and must not combine multiple actions (e.g., "search and summarize").
+- Preserve dependencies: if a task consumes the output of a previous task, it must include that task_id in depends_on.
+- Write "objectives" and "acceptance_criteria" in English.
+- Use the strings in preserve_spans to write "objectives" and "acceptance criteria".
 
 Output JSON only:
 {{
   "tasks":[
-  {{"task_id":"t1", "agent":"", "objective":"", "depends_on":[], "acceptance":""}},
-  {{"task_id":"t2", "agent":"", "objective":"", "depends_on":[], "acceptance":""}}
+  {{"task_id":"t1", "agent":"", "objective":"", "depends_on":[], "acceptance_criteria":""}},
+  {{"task_id":"t2", "agent":"", "objective":"", "depends_on":[], "acceptance_criteria":""}}
   ]
 }}
 """.strip()
+# - {{PRESERVE_i}} is an explicit exception and must be replaced with preserve_spans[i] as-is.
 
-    def generate(self, user_input, router_output:dict, history, language='Korean'):
-        using_router_output = {"using_agents": router_output["using_agents"], "high_level_intent": router_output["high_level_intent"]}
-        total_input = f"[User Input]\n{user_input}\n\n[Router Output]\n{functions.dumps_json(using_router_output)}"
+    def generate(self, user_input:str, router_output:dict, history, language='Korean'):
+        # using_router_output = {"using_agents": router_output["using_agents"], "high_level_intent": router_output["high_level_intent"], "preserve_spans": router_output["preserve_spans"]}
+        using_router_output = {key: val for key, val in router_output.items() if key.strip() not in ["route", "clarifying_question"]}
+        total_input = f"[User Input]:\n{user_input.strip()}\n\n[Router Output]:\n{functions.dumps_json(using_router_output)}"
         messages = history[max(0, len(history) - self.remember_turn*2):]+[{'role': "user", "content": total_input}]
         if messages[0]['role']=="system":
             messages = messages[1:]
