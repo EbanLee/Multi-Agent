@@ -35,7 +35,7 @@ def router_test(model_registry):
         history = []    # {'role': "user", "content": "손흥민의 팀은?"}, {'role': "assistant", "content": "손흥민의 팀은 LAFC입니다."}
         router.model.eval()
         with torch.no_grad():
-            router_output = router.generate(user_input=user_input, history=history, language=language)
+            router_output:dict = router.generate(user_input=user_input, history=history, language=language)
 
         torch.cuda.empty_cache()
 
@@ -70,22 +70,28 @@ def planner_test(model_registry):
     torch.cuda.empty_cache()
     planner = Modules.Planner(model_registry, config["planner_model_name"], available_agents=agents)
 
-    user_input = "무신사에서 온 메일 요약해서 김민혁에게 보내줘"
+    user_input = "쿠팡에서 온 메일 요약해서 김민혁에게 보내줘"
     dummy_router_output = f"""
 {{
   "route": "planner",
-  "using_agents": ["Email Agent", "Answer Agent"],
-  "high_level_intent": "Summarize emails from MuJi and send the summary to Kim Minhyuk.",
   "clarifying_question": "",
-  "preserve_spans": ["무신사", "김민혁"]
+  "using_agents": [
+    "Answer Agent",
+    "Email Agent"
+  ],
+  "preserve_spans": [
+    "쿠팡",
+    "김민혁"
+  ],
+  "high_level_intent": "Summarize emails from {{P0}} and send the summary to {{P1}} via email."
 }}
 """.strip()
     dummy_router_output = functions.loads_json(dummy_router_output)
-    print(functions.dumps_json(dummy_router_output))
+    # print(functions.dumps_json(dummy_router_output))
 
     history = []
     with torch.no_grad():
-        planner_output = planner.generate(user_input, dummy_router_output, history)
+        planner_output:dict = planner.generate(user_input, dummy_router_output, history)
 
     torch.cuda.empty_cache()
 
@@ -125,28 +131,28 @@ def email_agent_test(model_registry):
 
     agent = Agents.EmailAgent(model_registry, model_name=config["email_agent_model_name"], tool_registry=tool_registry)
     
-    user_input = "무신사에서 온 메일 요약해서 김민혁에게 보내줘"
+    user_input = "쿠팡에서 온 메일 요약해서 김민혁에게 보내줘"
     tasks = [
         {
-          "task_id": "t1",
-          "agent": "Email Agent",
-          "objective": "Read emails from 무신사",
-          "depends_on": [],
-          "acceptance_criteria": "Successfully read emails from 무신사"
+        "task_id": "t1",
+        "agent": "Email Agent",
+        "objective": "Retrieve the email content from 쿠팡",
+        "depends_on": [],
+        "acceptance_criteria": "The raw email content from 쿠팡 is successfully retrieved."
         },
         {
-          "task_id": "t2",
-          "agent": "Answer Agent",
-          "objective": "Summarize the emails read from 무신사",
-          "depends_on": ["t1"],
-          "acceptance_criteria": "Email summary is concise and captures the main points"
+        "task_id": "t2",
+        "agent": "Answer Agent",
+        "objective": "Summarize the email content",
+        "depends_on": ["t1"],
+        "acceptance_criteria": "A summary of the email content is generated."
         },
         {
-          "task_id": "t3",
-          "agent": "Email Agent",
-          "objective": "Send the email summary to 김민혁",
-          "depends_on": ["t2"],
-          "acceptance_criteria": "Email is sent successfully to 김민혁"
+        "task_id": "t3",
+        "agent": "Email Agent",
+        "objective": "Send the summary to 김민혁 via email",
+        "depends_on": ["t2"],
+        "acceptance_criteria": "The summary is successfully sent to 김민혁 via email."
         }
     ]
 
@@ -164,8 +170,8 @@ def email_agent_test(model_registry):
 
 if __name__=="__main__":
     model_registry = Modules.ModelRegistry()
-    router_test(model_registry)
-    # planner_test(model_registry)
+    # router_test(model_registry)
+    planner_test(model_registry)
     # search_agent_test(model_registry)
     # email_tool_test()
     # email_agent_test(model_registry)
