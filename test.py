@@ -97,6 +97,7 @@ def planner_test(model_registry):
 
 
 def email_tool_test():
+    print("Email Tool Test!\n")
     load_dotenv()
     
     EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
@@ -105,14 +106,21 @@ def email_tool_test():
     IMAP_HOST = os.getenv("IMAP_HOST", "imap.gmail.com")
     SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 
-    email_read_tool = email_tool.EmailSearchTool(EMAIL_ADDRESS, APP_PASSWARD, IMAP_HOST)
-    email_result = email_read_tool(unseen_only=False, subject_contains="무신사", from_contains=None)
+    email_search_tool = email_tool.EmailSearchTool(EMAIL_ADDRESS, APP_PASSWARD, IMAP_HOST)
+    email_result = email_search_tool(from_contains="쿠팡", limit=1)
+    print("\n[RESULT]:\n\n")
     for email in email_result:
       for key, val in email.items():
           print(f"{key} - {val}")
       print()
 
-    email_send_tool = email_tool.EmailSendTool(EMAIL_ADDRESS, APP_PASSWARD, SMTP_HOST, SMTP_PORT)
+    # email_get_tool = email_tool.EmailGetTool(EMAIL_ADDRESS, APP_PASSWARD, IMAP_HOST)
+    # email_get_result = email_get_tool(ids=["7393", "7383", "7364", "7349"], include_body=True, max_body_chars=10000)
+    
+    # for email in email_get_result:
+    #   for key, val in email.items():
+    #       print(f"{key} - {val}")
+    #   print()
 
 
 def email_agent_test(model_registry):
@@ -126,7 +134,7 @@ def email_agent_test(model_registry):
     IMAP_HOST = os.getenv("IMAP_HOST", "imap.gmail.com")
     SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
     
-    tool_registry = [email_tool.EmailSearchTool(email_addr=EMAIL_ADDRESS, app_password=APP_PASSWARD, imap_host=IMAP_HOST), email_tool.EmailGetTool(EMAIL_ADDRESS, APP_PASSWARD, IMAP_HOST), email_tool.EmailGetBatchTool(EMAIL_ADDRESS, APP_PASSWARD, IMAP_HOST), email_tool.EmailSendTool(email_addr=EMAIL_ADDRESS, app_password=APP_PASSWARD, smtp_host=SMTP_HOST, smtp_port=SMTP_PORT)]
+    tool_registry = [email_tool.EmailSearchTool(email_addr=EMAIL_ADDRESS, app_password=APP_PASSWARD, imap_host=IMAP_HOST), email_tool.EmailGetTool(EMAIL_ADDRESS, APP_PASSWARD, IMAP_HOST), email_tool.EmailSendTool(email_addr=EMAIL_ADDRESS, app_password=APP_PASSWARD, smtp_host=SMTP_HOST, smtp_port=SMTP_PORT)]
     tool_registry = {t.name:t for t in tool_registry}
 
     agent = Agents.EmailAgent(model_registry, model_name=config["email_agent_model_name"], tool_registry=tool_registry)
@@ -171,7 +179,7 @@ def email_agent_test(model_registry):
 if __name__=="__main__":
     model_registry = Modules.ModelRegistry()
     # router_test(model_registry)
-    planner_test(model_registry)
+    # planner_test(model_registry)
     # search_agent_test(model_registry)
-    # email_tool_test()
+    email_tool_test()
     # email_agent_test(model_registry)

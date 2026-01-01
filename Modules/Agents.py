@@ -30,7 +30,7 @@ class SearchAgent(Agent):
     #     "does not explicitly mention recency."
     # )
 
-    def __init__(self, model_registry, model_name, remember_turn=2, max_generate_token=128, max_repeat=3):
+    def __init__(self, model_registry, model_name, remember_turn=2, max_generate_token=256, max_repeat=3):
         loaded = model_registry(model_name)
         self.tokenizer = loaded.tokenizer
         self.model = loaded.model
@@ -166,7 +166,7 @@ class EmailAgent(Agent):
     name = "Email Agent"
     description = "Handle email-related tasks such as reading and writing emails."
 
-    def __init__(self, model_registry, model_name, tool_registry:dict, remember_turn=2, max_generate_token=256, max_repeat=6):
+    def __init__(self, model_registry, model_name, tool_registry:dict, remember_turn=2, max_generate_token=512, max_repeat=6):
         loaded = model_registry(model_name)       
         self.tokenizer = loaded.tokenizer
         self.model = loaded.model
@@ -179,24 +179,20 @@ class EmailAgent(Agent):
         tool_str = "\n".join([f"- {name}:\n{functions.dumps_json({'description': tool.description, 'args_schema': tool.args_schema})}\n" for name, tool in self.tool_registry.items()])
         return f"""
 You are an Email Decision Agent.
-
-Your role:
-- You do NOT answer the user's request.
-- You ONLY decide whether to call one email tool or finish.
+You ONLY decide whether to call one email tool or finish.
 
 Available Tools:
 {tool_str}
 
 Decision rules:
 1. Reading/listing: if message_id is unknown, call search_emails first.
-2. Getting body: use get_email (or get_emails for multiple).
+2. Getting body: use get_emails.
 3. Sending email:
    - Only call a send tool when ALL required fields (to, subject, body_text) are explicitly provided.
    - Never guess missing email addresses, subjects, or message content.
    - If any required field is missing, choose action="finish" and explain what is missing.
 4. tool_name MUST be exactly one of the tool names listed in Available Tools.
 5. tool_args MUST strictly follow the selected tool's args_schema.
-6. Only act within TASK.
 
 Language rules:
 - "thought" is answered in English.
@@ -214,7 +210,7 @@ Output MUST be exactly one JSON and nothing else:
 """.strip()
 
     def generate(self, user_input, task, history, language='Korean'):
-        history = history[max(0, len(history)-2*self.remember_turn):] + [{'role': 'user', 'content': f"[USER INPUT]:\n{user_input}\n\n[TASK]:\n{functions.dumps_json(task)}"}]   # 사용할 history만 뽑기
+        history = history[max(0, len(history)-2*self.remember_turn):] + [{'role': 'user', 'content': f"[TASK]:\n{functions.dumps_json(task)}"}]   # 사용할 history만 뽑기
         sys_prompt = {'role': 'system', 'content': self.build_system_prompt(language)}
         if history[0]['role']=='system':
             history = history[1:]
@@ -222,7 +218,8 @@ Output MUST be exactly one JSON and nothing else:
 
         observation = None
         result = []
-        for _ in range(self.max_repeat):
+        for step in range(self.max_repeat):
+            print(f"\nSTEP {step+1}: ")
             if observation is not None:
                 messages.append({'role':'tool', 'content':observation})
 
@@ -289,6 +286,13 @@ Output MUST be exactly one JSON and nothing else:
                 continue
 
             result.append(observation)
+            if tool_name=="get_emails":
+                for idx, curr_email in enumerate(observation):
+                    curr_email.pop("body")
+                    curr_email["body_fetched"] = True
+
+                    observation[idx]=curr_email
+
             observation = functions.dumps_json({"ok": True, "results": observation})
 
         if not result:

@@ -3,7 +3,7 @@ import html
 import imaplib
 import smtplib
 import email
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from email.header import decode_header
 from email.mime.text import MIMEText
@@ -111,23 +111,89 @@ def extract_text_body(msg: email.message.Message) -> str:
 
     return ""
 
+def _default_since_date(days: int = 30) -> str:
+    kst = timezone(timedelta(hours=9))
+    return (datetime.now(kst).date() - timedelta(days=days)).isoformat()
+
+def _escape_gmail_quote(s: str) -> str:
+    return s.replace('"', '\\"')
+
+def _is_ascii(s: str) -> bool:
+    try:
+        s.encode("ascii")
+        return True
+    except UnicodeEncodeError:
+        return False
+
+def _try_xgmraw(imap: imaplib.IMAP4_SSL) -> bool:
+    try:
+        # 결과 0이어도 OK면 "지원"으로 판단
+        status, _ = imap.uid("SEARCH", "X-GM-RAW", b"in:inbox newer_than:1d")
+        return status == "OK"
+    except Exception:
+        return False
+
+def _try_utf8_search(imap: imaplib.IMAP4_SSL) -> bool:
+    try:
+        status, _ = _uid_search_utf8(imap, ["ALL", "SUBJECT"], "test")
+        return status == "OK"
+    except Exception:
+        return False
+
+def _detect_search_mode(imap: imaplib.IMAP4_SSL) -> str:
+    """
+    returns: "xgmraw" | "utf8" | "local"
+    - xgmraw: Gmail X-GM-RAW 가능
+    - utf8:  표준 SEARCH CHARSET UTF-8 가능(한글 서버필터 가능)
+    - local: 서버 한글검색 불가 → 로컬 필터
+    """
+    if _try_xgmraw(imap):
+        return "xgmraw"
+    if _try_utf8_search(imap):
+        return "utf8"
+    return "local"
+
+def _uid_search_utf8(imap: imaplib.IMAP4_SSL, criteria_tokens: list[str], text_value: str) -> tuple[str, list]:
+    """
+    UID SEARCH CHARSET UTF-8 <criteria...> <literal>
+    - 마지막 문자열(예: 쿠팡)을 literal로 보내서 파싱 오류를 피한다.
+    """
+    b = text_value.encode("utf-8")
+    imap.literal = b  # imaplib이 {n}\r\n<bytes> 형태로 전송
+    # 마지막 토큰은 literal placeholder로 비워둬야 함
+    return imap.uid("SEARCH", "CHARSET", "UTF-8", *criteria_tokens, None)
+
 
 class EmailSearchTool(Tool):
     name = "search_emails"
     description="List emails (lightweight) via IMAP."
     args_schema={
         "properties": {
-            "unseen_only": {"type": "boolean", "default": False},
-            "since_date": {"type": "string", "description": "YYYY-MM-DD"},
-            "before_date": {"type": "string", "description": "YYYY-MM-DD"},
-            "from_contains": {"type": "string"},
-            "subject_contains": {"type": "string"},
-            "limit": {"type": "integer", "default": 10, "minimum": 1, "maximum": 50},
-            "offset": {"type": "integer", "default": 0, "minimum": 0},
-            "prefetch_multiplier": {"type": "integer", "default": 5, "minimum": 1, "maximum": 50},
+            "unseen_only": "bool",
+            "since_date": "str (YYYY-MM-DD)",
+            "before_date": "str",
+            "from_contains": "str",
+            "subject_contains": "str",
+            "limit": "int",
+            "offset": "int",
+            "prefetch_multiplier": "int",
         },
         "required": []
     }
+    
+    # args_schema={
+    #     "properties": {
+    #         "unseen_only": {"type": "boolean", "default": False},
+    #         "since_date": {"type": "string", "description": "YYYY-MM-DD"},
+    #         "before_date": {"type": "string", "description": "YYYY-MM-DD"},
+    #         "from_contains": {"type": "string"},
+    #         "subject_contains": {"type": "string"},
+    #         "limit": {"type": "integer", "default": 5, "minimum": 1, "maximum": 50},
+    #         "offset": {"type": "integer", "default": 0, "minimum": 0},
+    #         "prefetch_multiplier": {"type": "integer", "default": 20, "minimum": 1, "maximum": 50},
+    #     },
+    #     "required": []
+    # }
 
     def __init__(self, email_addr: str, app_password: str, imap_host: str):
         self.email_addr = email_addr
@@ -141,45 +207,136 @@ class EmailSearchTool(Tool):
         before_date: Optional[str] = None,
         from_contains: Optional[str] = None,
         subject_contains: Optional[str] = None,
-        limit: int = 10,
+        limit: int = 5,
         offset: int = 0,
-        prefetch_multiplier: int = 5,
-    ):        
+        prefetch_multiplier: int = 20,
+    ):  
+        """
+        Gmail(X-GM-RAW) 가능하면 서버에서 한글/영어 필터링.
+        아니면(비Gmail/불안정) 날짜/읽음만 서버에서 제한하고,
+        from/subject는 헤더 디코딩 후 로컬 필터링으로 한방 처리.
+        """
+
         limit = max(1, min(limit, 50))
         offset = max(0, offset)
         prefetch_multiplier = max(1, min(prefetch_multiplier, 50))
-        
-        imap = imaplib.IMAP4_SSL(self.imap_host)  # (1) SSL로 IMAP 서버 접속
+        want_max = 300
+
+        # since_date 기본값(30일)
+        if not since_date:
+            since_date = _default_since_date()
+
+        imap = imaplib.IMAP4_SSL(self.imap_host)
         try:
-            imap.login(self.email_addr, self.app_password)  # (2) 로그인
-            imap.select("INBOX")                     # (3) 받은편지함 선택
-            
-            # (4) IMAP SEARCH 조건 구성
-            criteria: list[str] = ["UNSEEN" if unseen_only else "ALL"]  # 안본거만 읽을지
-            
-            if since_date:
-                criteria += ["SINCE", imap_date(since_date)]
-            if before_date:
-                criteria += ["BEFORE", imap_date(before_date, before=True)]
-            
-            status, data = imap.uid("search", None, *criteria)
-    
-            if status != "OK":
+            imap.login(self.email_addr, self.app_password)
+            imap.select("INBOX")
+
+            mode = _detect_search_mode(imap)
+            print(f"!!!! {mode=} !!!!\n")
+
+            if mode == "xgmraw":
+                raw_parts = ["in:inbox"]
+                if unseen_only:
+                    raw_parts.append("is:unread")
+                if since_date:
+                    raw_parts.append(f"after:{since_date.replace('-', '/')}")
+                if before_date:
+                    raw_parts.append(f"before:{before_date.replace('-', '/')}")
+
+                if from_contains:
+                    v = _escape_gmail_quote(from_contains)
+                    raw_parts.append(f'from:"{v}"')
+                if subject_contains:
+                    v = _escape_gmail_quote(subject_contains)
+                    raw_parts.append(f'subject:"{v}"')
+
+                raw_query = " ".join(raw_parts)
+
+                status, data = imap.uid("SEARCH", "X-GM-RAW", raw_query.encode("utf-8"))
+                if status != "OK":
+                    return []
+                ids = (data[0] or b"").split()
+
+            elif mode == "utf8":
+                # 표준 IMAP SEARCH CHARSET UTF-8 (문자열은 literal로 보내야 안전)
+                base = ["UNSEEN" if unseen_only else "ALL"]
+
+                if since_date:
+                    base += ["SINCE", imap_date(since_date)]
+                if before_date:
+                    base += ["BEFORE", imap_date(before_date, before=True)]
+
+                def run_one(key: str, value: str):
+                    tokens = base + [key]
+                    status, data = _uid_search_utf8(imap, tokens, value)
+                    if status != "OK":
+                        return set()
+                    return set((data[0] or b"").split())
+
+                ids_set = None
+
+                if from_contains:
+                    s = run_one("FROM", from_contains)
+                    ids_set = s if ids_set is None else (ids_set & s)
+
+                if subject_contains:
+                    s = run_one("SUBJECT", subject_contains)
+                    ids_set = s if ids_set is None else (ids_set & s)
+
+                # from/subject 둘 다 없으면 base만으로 검색
+                if ids_set is None:
+                    status, data = imap.uid("SEARCH", *base)
+                    if status != "OK":
+                        return []
+                    ids = (data[0] or b"").split()
+                else:
+                    ids = list(ids_set)
+
+
+            else:
+                # mode == "local"
+                # 표준 IMAP SEARCH: 한글 필터는 넣지 말고(ASCII 오류/서버편차) 날짜/읽음만 제한
+                criteria = ["UNSEEN" if unseen_only else "ALL"]
+
+                if since_date:
+                    criteria += ["SINCE", imap_date(since_date)]
+                if before_date:
+                    criteria += ["BEFORE", imap_date(before_date, before=True)]
+
+                # ASCII면 서버에서 더 좁히기
+                if from_contains and _is_ascii(from_contains):
+                    criteria += ["FROM", f'"{from_contains}"']
+                if subject_contains and _is_ascii(subject_contains):
+                    criteria += ["SUBJECT", f'"{subject_contains}"']
+
+                status, data = imap.uid("SEARCH", *criteria)
+                if status != "OK":
+                    return []
+                ids = (data[0] or b"").split()
+
+
+            if not ids:
                 return []
-            
-            ids = data[0].split()                           # 검색 결과: 메일 id 리스트(bytes)
+
+            # UID 정렬 (오름차순)
             sorted_ids = sorted(ids, key=lambda x: int(x))
-            
-            # 로컬 필터 대비 넉넉히 가져오기
-            want = (offset + limit) * prefetch_multiplier
-            candidate_ids = sorted_ids[-want:] if want < len(sorted_ids) else sorted_ids                             # 최신 limit개
-            
-            # 헤더만 가져오기(가벼움)
-            fetch_query = "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)])"
+
+            need = offset + limit
+            if mode in ("xgmraw", "utf8"):  # 서버 필터 신뢰 → 최소 여유만
+                want = min(need * 3, want_max)
+            else:   # 로컬 필터 대비 → 넉넉히
+                want = min(need * prefetch_multiplier, want_max)
+
+            candidate_ids = sorted_ids[-want:] if want < len(sorted_ids) else sorted_ids
+
+            # 헤더만 fetch 후 로컬 필터(한글/영어 한방)
+            fetch_query = "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])"
 
             results = []
-            for uid in candidate_ids[::-1]:
-                status_h, header_data = imap.uid("fetch", uid, fetch_query)
+            need_count = offset + limit
+
+            for uid in reversed(candidate_ids):
+                status_h, header_data = imap.uid("FETCH", uid, fetch_query)
                 if status_h != "OK" or not header_data:
                     continue
 
@@ -191,30 +348,31 @@ class EmailSearchTool(Tool):
                 subject = decode_mime_header(msg.get("Subject"))
                 from_addr = decode_mime_header(msg.get("From"))
                 date = decode_mime_header(msg.get("Date"))
-                message_id = decode_mime_header(msg.get("Message-ID"))
+                
+                print("subject: ", subject)
+                print("from_addr: ", from_addr)
+                print("date: ", date, "\n")
 
-                print("Subject: ", subject)
-                print("From_addr: ",from_addr)
-                print("Date: ",date,"\n")
-
-                # 로컬 필터 (한글처리)
+                # 로컬 필터: Gmail/비Gmail 공통 적용(일관성 + 안전)
                 if subject_contains and subject_contains not in subject:
                     continue
                 if from_contains and from_contains not in from_addr:
                     continue
 
                 results.append({
-                    "uid": uid.decode(),
-                    "message_id": message_id,
+                    "uid": uid.decode(errors="replace"),
                     "from_addr": from_addr,
                     "subject": subject,
                     "date": date,
                 })
 
+                # 충분히 모이면 조기 종료(성능)
+                if len(results) >= need_count:
+                    break
+
             return results[offset: offset + limit]
 
         finally:
-            # (6) 세션 종료(안 하면 연결이 쌓일 수 있음)
             try:
                 imap.close()
             except Exception:
@@ -223,80 +381,35 @@ class EmailSearchTool(Tool):
                 imap.logout()
             except Exception:
                 pass
-        
+
 
 class EmailGetTool(Tool):
-    name = "get_email"
-    description = "Get a single email (full) by id via IMAP."
-    args_schema = {
-        "properties": {
-            "uid": {"type": "string", "minLength": 1},
-            "include_body": {"type": "boolean", "default": True},
-            "max_body_chars": {"type": "integer", "default": 2000, "minimum": 100, "maximum": 100000},
-        },
-        "required": ["id"]
-    }
-
-    def __init__(self, email_addr: str, app_password: str, imap_host: str):
-        self.email_addr = email_addr
-        self.app_password = app_password
-        self.imap_host = imap_host
-
-    def __call__(self, uid: str, include_body: bool = True, max_body_chars: int = 2000):
-        imap = imaplib.IMAP4_SSL(self.imap_host)
-        try:
-            imap.login(self.email_addr, self.app_password)
-            imap.select("INBOX")
-
-            uid = uid.encode()
-            typ, full_data = imap.uid("fetch", uid, "(RFC822)")
-            if typ != "OK" or not full_data or not isinstance(full_data[0], tuple):
-                return {"error": "fetch_failed", "id": id}
-
-            full_msg = email.message_from_bytes(full_data[0][1])
-            subject = decode_mime_header(full_msg.get("Subject"))
-            from_addr = decode_mime_header(full_msg.get("From"))
-            to_addr = decode_mime_header(full_msg.get("To"))
-            date = decode_mime_header(full_msg.get("Date"))
-
-            body = extract_text_body(full_msg) if include_body else ""
-            if len(body) > max_body_chars:
-                body = body[:max_body_chars]
-
-            return {
-                "id": id,
-                "from_addr": from_addr,
-                "to": to_addr,
-                "subject": subject,
-                "date": date,
-                "body": body,
-            }
-
-        finally:
-            try: imap.close()
-            except Exception: pass
-            try: imap.logout()
-            except Exception: pass
-
-
-class EmailGetBatchTool(Tool):
     name = "get_emails"
-    description = "Get multiple emails (full) by ids via IMAP (UID)."
+    description = "Get emails (full) by ids via IMAP."
     args_schema = {
         "properties": {
-            "ids": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 50},
-            "include_body": {"type": "boolean", "default": True},
-            "max_body_chars": {"type": "integer", "default": 2000, "minimum": 100, "maximum": 100000},
+            "ids": "list[str]",
         },
         "required": ["ids"]
     }
 
+    # args_schema = {
+    #     "properties": {
+    #         "ids": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 5},
+    #         "include_body": {"type": "boolean", "default": True},
+    #         "max_body_chars": {"type": "integer", "default": 3000, "minimum": 1000, "maximum": 100000},
+    #     },
+    #     "required": ["ids"]
+    # }
+
     def __init__(self, email_addr: str, app_password: str, imap_host: str):
         self.email_addr = email_addr
         self.app_password = app_password
         self.imap_host = imap_host
 
-    def __call__(self, ids: list[str], include_body: bool=True, max_body_chars: int=2000):
+    def __call__(self, ids: list[str], max_body_chars: int=10000):
+        ids = ids[max(0, len(ids)-5):]
+
         imap = imaplib.IMAP4_SSL(self.imap_host)
         try:
             imap.login(self.email_addr, self.app_password)
@@ -316,7 +429,7 @@ class EmailGetBatchTool(Tool):
                 to_addr = decode_mime_header(full_msg.get("To"))
                 date = decode_mime_header(full_msg.get("Date"))
 
-                body = extract_text_body(full_msg) if include_body else ""
+                body = extract_text_body(full_msg)
                 if len(body) > max_body_chars:
                     body = body[:max_body_chars]
 
@@ -352,13 +465,23 @@ class EmailSendTool:
     description="Send email via SMTP."
     args_schema={
         "properties": {
-            "to": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-            "cc": {"type": "array", "items": {"type": "string"}},
-            "subject": {"type": "string", "minLength": 1},
-            "body_text": {"type": "string", "minLength": 1},
+            "to": "list[str]",
+            "cc": "list[str]",
+            "subject": "str",
+            "body_text": "str",
         },
         "required": ["to", "subject", "body_text"]
     }
+
+    # args_schema={
+    #     "properties": {
+    #         "to": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    #         "cc": {"type": "array", "items": {"type": "string"}},
+    #         "subject": {"type": "string", "minLength": 1},
+    #         "body_text": {"type": "string", "minLength": 1},
+    #     },
+    #     "required": ["to", "subject", "body_text"]
+    # }
 
     def __init__(self, email_addr: str, app_password: str, smtp_host: str, smtp_port: int):
         self.email_addr = email_addr

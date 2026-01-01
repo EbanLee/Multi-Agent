@@ -7,7 +7,7 @@ from utils import functions
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 class Router:
-    def __init__(self, model_registry, model_name, available_agents:Optional[dict]=None, remember_turn:int=2, max_generate_token:int=128):
+    def __init__(self, model_registry, model_name, available_agents:Optional[dict]=None, remember_turn:int=2, max_generate_token:int=256):
         loaded = model_registry(model_name)
         self.tokenizer = loaded.tokenizer
         self.model = loaded.model
@@ -119,7 +119,7 @@ Output JSON only:
         return output_dict
 
 class Planner:
-    def __init__(self, model_registry, model_name, available_agents:Optional[dict]=None, remember_turn:int=2, max_generate_token:int=384):
+    def __init__(self, model_registry, model_name, available_agents:Optional[dict]=None, remember_turn:int=2, max_generate_token:int=512):
         loaded = model_registry(model_name)
         self.tokenizer = loaded.tokenizer
         self.model = loaded.model
