@@ -35,7 +35,8 @@ def router_test(model_registry):
         history = []    # {'role': "user", "content": "손흥민의 팀은?"}, {'role': "assistant", "content": "손흥민의 팀은 LAFC입니다."}
         router.model.eval()
         with torch.no_grad():
-            router_output:dict = router.generate(user_input=user_input, history=history, language=language)
+            router_output = router.generate(user_input=user_input, history=history, language=language)
+            print(router_output)
 
         torch.cuda.empty_cache()
 
@@ -169,17 +170,53 @@ def email_agent_test(model_registry):
         if task['agent']=="Email Agent":
             print("\nSTART! START! START! START! START! START! START! START! START! START! START! START! START! START! \n")
             input_task = {'objective': task['objective'], 'acceptance_criteria': task['acceptance_criteria']}
-            result = agent.generate(user_input, input_task, history)
+            task_str = f"[TASK]:\n{functions.dumps_json(task)}"
+            result = agent.generate(task_str, history)
             break
             print(result)
             exit()
     
 
+def orchestrator_test():
+    load_dotenv()
+    
+    EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
+    APP_PASSWARD = os.getenv("APP_PASSWARD")
+    SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    IMAP_HOST = os.getenv("IMAP_HOST", "imap.gmail.com")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+
+    torch.cuda.empty_cache()
+
+    model_registry = Modules.ModelRegistry()
+    email_tool_registry = [
+        email_tool.EmailSearchTool(email_addr=EMAIL_ADDRESS, app_password=APP_PASSWARD, imap_host=IMAP_HOST),
+        email_tool.EmailGetTool(EMAIL_ADDRESS, APP_PASSWARD, IMAP_HOST),
+        email_tool.EmailSendTool(email_addr=EMAIL_ADDRESS, app_password=APP_PASSWARD, smtp_host=SMTP_HOST, smtp_port=SMTP_PORT)
+        ]
+    email_tool_registry = {t.name:t for t in email_tool_registry}
+
+    agents = [
+        Agents.AnswerAgent(model_registry=model_registry, model_name=config["answer_model_name"]),
+        Agents.SearchAgent(model_registry=model_registry, model_name=config["search_agent_model_name"]),
+        Agents.EmailAgent(model_registry=model_registry, model_name=config["email_agent_model_name"], tool_registry=email_tool_registry),
+        ]
+    agents = {agent.name:agent for agent in agents}
+
+    router = Modules.Router(model_registry=model_registry, model_name=config["router_model_name"], available_agents=agents)
+    planner = Modules.Planner(model_registry=model_registry, model_name=config["planner_model_name"], available_agents=agents)
+    
+    orchestrator = Modules.Orchestrator(router=router, planner=planner, agents=agents)
+    
+    user_input = "쿠팡에서 온 메일 요약해서 나에게 보내줘"
+    orchestrator.run(user_input=user_input)
 
 if __name__=="__main__":
     model_registry = Modules.ModelRegistry()
     # router_test(model_registry)
     # planner_test(model_registry)
     # search_agent_test(model_registry)
-    email_tool_test()
+    # email_tool_test()
     # email_agent_test(model_registry)
+    orchestrator_test()
+

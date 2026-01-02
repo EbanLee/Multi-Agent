@@ -232,7 +232,7 @@ class EmailSearchTool(Tool):
             imap.select("INBOX")
 
             mode = _detect_search_mode(imap)
-            print(f"!!!! {mode=} !!!!\n")
+            # print(f"!!!! {mode=} !!!!\n")
 
             if mode == "xgmraw":
                 raw_parts = ["in:inbox"]
@@ -349,9 +349,9 @@ class EmailSearchTool(Tool):
                 from_addr = decode_mime_header(msg.get("From"))
                 date = decode_mime_header(msg.get("Date"))
                 
-                print("subject: ", subject)
-                print("from_addr: ", from_addr)
-                print("date: ", date, "\n")
+                # print("subject: ", subject)
+                # print("from_addr: ", from_addr)
+                # print("date: ", date, "\n")
 
                 # 로컬 필터: Gmail/비Gmail 공통 적용(일관성 + 안전)
                 if subject_contains and subject_contains not in subject:

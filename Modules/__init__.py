@@ -4,8 +4,33 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
 from utils import functions
+from . import Agents
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+class LoadLLM:
+    def __init__(self, model:AutoModelForCausalLM, tokenizer:AutoTokenizer):
+        self.model = model
+        self.tokenizer = tokenizer
+
+class ModelRegistry:
+    def __init__(self):
+        self.model_dict={}
+
+    def __call__(self, model_name):
+        if model_name not in self.model_dict:
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            model = AutoModelForCausalLM.from_pretrained(
+                        model_name,
+                        dtype=torch.float16,
+                        device_map=DEVICE,
+                        quantization_config = BitsAndBytesConfig(load_in_8bit=True)
+                    )
+            self.model_dict.update({model_name:LoadLLM(model=model, tokenizer=tokenizer)})
+            
+        return self.model_dict[model_name]
+
+
 class Router:
     def __init__(self, model_registry, model_name, available_agents:Optional[dict]=None, remember_turn:int=2, max_generate_token:int=256):
         loaded = model_registry(model_name)
@@ -55,7 +80,6 @@ high_level_intent rules:
 - high_level_intent MUST be abstract and MUST NOT contain any substring from preserve_spans (use {{Pn}} placeholders instead).
 - If preserve_spans is non-empty, high_level_intent MUST reference preserved values ONLY via indexed placeholders {{P0}}, {{P1}}, ...
 - Each placeholder {{Pn}} refers to preserve_spans[n] by index.
-- Use a clear, action-oriented sentence suitable for task planning
   (e.g., "Search for {{P0}} and send the results to {{P1}} via email.").
 
 Output JSON only:
@@ -79,7 +103,7 @@ Output JSON only:
                 tokenize=False,
                 add_generation_prompt=True,
             )
-            print(f"\n---------------------------- [INPUT] ----------------------------\n{input_text}\n")
+            # print(f"\n---------------------------- [INPUT] ----------------------------\n{input_text}\n")
 
             inputs = self.tokenizer(
             input_text,
@@ -102,9 +126,9 @@ Output JSON only:
                         "content": output_text,
                     }
                 ]
-            print("\n---------------------------- [OUTPUT] ----------------------------\n")
-            print(output_text)
-            print(f"{len(generated_output)=}\n")
+            # print("\n---------------------------- [OUTPUT] ----------------------------\n")
+            # print(output_text)
+            # print(f"{len(generated_output)=}\n")
             try:
                 output_dict = functions.loads_json(output_text)
                 break
@@ -184,7 +208,7 @@ Output JSON only:
                 tokenize=False,
                 add_generation_prompt=True
             )
-            print(f"\n---------------------------- [INPUT] ----------------------------\n{input_text}\n")
+            # print(f"\n---------------------------- [INPUT] ----------------------------\n{input_text}\n")
 
             inputs = self.tokenizer(input_text, return_tensors='pt')
             outputs = self.model.generate(
@@ -202,9 +226,9 @@ Output JSON only:
                             "content": output_text,
                         }
                     ]
-            print("\n---------------------------- [OUTPUT] ----------------------------\n")
-            print(output_text)
-            print(f"{len(generated_output)=}\n")
+            # print("\n---------------------------- [OUTPUT] ----------------------------\n")
+            # print(output_text)
+            # print(f"{len(generated_output)=}\n")
             try:
                 output_dict = functions.loads_json(output_text)
                 break
@@ -219,25 +243,71 @@ Output JSON only:
         return output_dict
 
 
-class LoadLLM:
-    def __init__(self, model:AutoModelForCausalLM, tokenizer:AutoTokenizer):
-        self.model = model
-        self.tokenizer = tokenizer
+class Orchestrator:
+    def __init__(self, router:Router, planner:Planner, agents:list[Agents.Agent]):
+        self.agents = agents
+        self.router = router
+        self.planner = planner
+        self.history = []
+        
+    def run_router(self, user_input:str, history:list, language="Korean"):
+        route = self.router.generate(user_input=user_input, history=history, language=language)
+        return route
+    
+    def run_planner(self, user_input:str, router_output:dict, history:list, language='Korean'):
+        plan = self.planner.generate(user_input=user_input, router_output=router_output, history=history, language=language)
+        return plan
+        
+    def get_dependent_result(self, depends_on, task_results) -> dict:
+        result = {}
+        for task_id in depends_on:
+            task_result = task_results[task_id]
+            result[task_id] = task_result
+        
+        return result
 
-class ModelRegistry:
-    def __init__(self):
-        self.model_dict={}
 
-    def __call__(self, model_name):
-        if model_name not in self.model_dict:
-            tokenizer = AutoTokenizer.from_pretrained(model_name)
-            model = AutoModelForCausalLM.from_pretrained(
-                        model_name,
-                        dtype=torch.float16,
-                        device_map=DEVICE,
-                        quantization_config = BitsAndBytesConfig(load_in_8bit=True)
-                    )
-            self.model_dict.update({model_name:LoadLLM(model=model, tokenizer=tokenizer)})
+    def run_agent(self, agent_name, input_string, language="Korean"):
+        agent:Agents.Agent = self.agents[agent_name]
+        tool_result = agent.generate(input_string, self.history, language)
+        
+        return tool_result
+
+    def run(self, user_input):
+        language = functions.detect_language(user_input)
+        
+        torch.cuda.empty_cache()
+        self.router.model.eval()
+        self.planner.model.eval()
+
+        with torch.no_grad():
+            route = self.run_router(user_input, self.history, language)
+            print(f"Route:\n{functions.dumps_json(route)}\n")
+
+            plan = self.run_planner(user_input, route, self.history, language)
+            print(f"Plan:\n{functions.dumps_json(plan)}\n")
             
-        return self.model_dict[model_name]
+            tasks = plan["tasks"]
+            task_results = {}
+            for task in tasks:
+                # task_id = task["id"]
+                # agent_name = task["agent"]
+                # objective = task["objective"]
+                # depends_on = task["depends_on"]
+                # acceptance_criteria = task["acceptance_criteria"]
+                input_string = ""
+
+                dependent_results = self.get_dependent_result(task["depends_on"], task_results)
+                if dependent_results:
+                    dependent_results_string = functions.dumps_json(dependent_results)
+                    input_string+=f"[REFERENCE]:\n{dependent_results_string}\n\n"
+
+                task_string = functions.dumps_json({key:val for key, val in task.items() if key in ["objective", "depends_on", "acceptance_criteria"]})
+                input_string += f"[TASK]:\n{task_string}"
+                
+                agent_tool_result = self.run_agent(task["agent"], input_string.strip(), language)
+                print(agent_tool_result)
+
+                task_results[task["id"]] = agent_tool_result
+                
 
