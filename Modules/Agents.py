@@ -15,6 +15,9 @@ class Agent(ABC):
     def __init__(self, model_name:str, **kwargs):
         pass
 
+    def generate(self, user_input, history, language='Korean'):
+        pass
+
 class DummyAgent(Agent):
     def __init__(self, model_name, name, description):
         self.model_name = model_name
@@ -56,8 +59,8 @@ Output rules:
 Valid output format:
 {{
   "action": "search" | "finish",
-  "action_input": {{}}  // parameters go here
-  "thought": "Reason for the action",
+  "action_input": {{}},  // parameters go here
+  "thought": "Reason for the action"
 }}
 
 Language rules:
@@ -66,7 +69,7 @@ Language rules:
 
 """.strip()
 
-    def generate(self, user_input, task, history, language='Korean'):
+    def generate(self, user_input, history, language='Korean'):
         history = history[max(0, len(history)-2*self.remember_turn):] + [{'role': 'user', 'content': user_input}]   # 사용할 history만 뽑기
         sys_prompt = {'role': 'system', 'content': self.build_system_prompt(language)}
         if history[0]['role']=='system':
@@ -154,12 +157,59 @@ class AnswerAgent(Agent):
     name = "Answer Agent"
     description = "Handles language-level tasks such as summarization, translation, rewriting, formatting, and final user-facing responses."
 
-    def __init__(self, model_registry, model_name, remember_turn=2):
+    def __init__(self, model_registry, model_name, remember_turn=2, max_generate_token=1024, max_repeat=3):
         loaded = model_registry(model_name)       
         self.tokenizer = loaded.tokenizer
         self.model = loaded.model
         self.remember_turn = remember_turn
+        self.max_generate_token = max_generate_token
+        self.max_repeat = max_repeat
 
+    def build_system_prompt(self, language='Korean'):
+        return f"""
+You are the Answer Agent.
+Output EXACTLY one JSON object.
+Answer the request in "answer".
+
+Valid output format:
+{{
+  "action": "respond",
+  "answer": string
+}}
+""".strip()
+
+    def generate(self, user_input, history, language='Korean'):
+        history = history[max(0, len(history)-2*self.remember_turn):] + [{'role': 'user', 'content': user_input}]   # 사용할 history만 뽑기
+        sys_prompt = {'role': 'system', 'content': self.build_system_prompt(language)}
+        if history[0]['role']=='system':
+            history = history[1:]
+        messages = [sys_prompt] + history
+        
+        for i in range(self.max_repeat):
+            input_text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
+
+            inputs = self.tokenizer(input_text, return_tensors="pt")
+            outputs = self.model.generate(
+                **inputs,
+                pad_token_id=self.tokenizer.eos_token_id,
+                eos_token_id=self.tokenizer.eos_token_id,
+                max_new_tokens=self.max_generate_token
+            )
+
+            generated_output = outputs[0][len(inputs.input_ids[0]):].tolist()
+            output_text = self.tokenizer.decode(generated_output, skip_special_tokens=True)
+
+            try:
+                output_dict = functions.loads_json(output_text)
+                break
+            except Exception:
+                messages += [{"role":"assistant", "content": output_text}, {"role":"user", "content": "Not JSON. Respond again with ONLY one JSON object."}]
+
+        return output_dict
 
         
 class EmailAgent(Agent):
@@ -209,8 +259,8 @@ Output MUST be exactly one JSON and nothing else:
 }}
 """.strip()
 
-    def generate(self, user_input, task, history, language='Korean'):
-        history = history[max(0, len(history)-2*self.remember_turn):] + [{'role': 'user', 'content': f"[TASK]:\n{functions.dumps_json(task)}"}]   # 사용할 history만 뽑기
+    def generate(self, user_input, history, language='Korean'):
+        history = history[max(0, len(history)-2*self.remember_turn):] + [{'role': 'user', 'content': user_input}]   # 사용할 history만 뽑기
         sys_prompt = {'role': 'system', 'content': self.build_system_prompt(language)}
         if history[0]['role']=='system':
             history = history[1:]
@@ -268,8 +318,7 @@ Output MUST be exactly one JSON and nothing else:
             
             tool_name = output_dict.get("tool_name")
             tool_args: dict[str, str] = output_dict.get("tool_args")
-            
-            observation = self.tool_registry[tool_name](**tool_args)
+
             # 도구 사용 성공했을 때 만 result에 저장.
             try:
                 observation = self.tool_registry[tool_name](**tool_args)
