@@ -1,5 +1,6 @@
 from abc import ABC
 import json
+import copy
 
 import torch
 
@@ -169,7 +170,7 @@ class AnswerAgent(Agent):
         return f"""
 You are the Answer Agent.
 Output EXACTLY one JSON object.
-Answer the request in "answer".
+Answer the request in "answer" in {language}.
 
 Valid output format:
 {{
@@ -194,7 +195,7 @@ Valid output format:
 
             inputs = self.tokenizer(input_text, return_tensors="pt")
             outputs = self.model.generate(
-                **inputs,
+                **inputs.to(DEVICE),
                 pad_token_id=self.tokenizer.eos_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
                 max_new_tokens=self.max_generate_token
@@ -336,7 +337,7 @@ Output MUST be exactly one JSON and nothing else:
 
             result.append(observation)
             if tool_name=="get_emails":
-                for idx, curr_email in enumerate(observation):
+                for idx, curr_email in enumerate(copy.deepcopy(observation)):
                     curr_email.pop("body")
                     curr_email["body_fetched"] = True
 
