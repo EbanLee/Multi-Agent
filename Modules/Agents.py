@@ -170,12 +170,12 @@ class AnswerAgent(Agent):
         return f"""
 You are the Answer Agent.
 Output EXACTLY one JSON object.
-Answer the request in "answer" in {language}.
+Answer the request in "result" in {language}.
 
 Valid output format:
 {{
-  "action": "respond",
-  "answer": string
+  "note": string,
+  "result": string
 }}
 """.strip()
 
@@ -279,7 +279,7 @@ Output MUST be exactly one JSON and nothing else:
                 tokenize=False,
                 add_generation_prompt=True
             )
-            print(f"\n---------------------------- [INPUT] ----------------------------\n{input_text}\n")
+            # print(f"\n---------------------------- [INPUT] ----------------------------\n{input_text}\n")
 
             inputs = self.tokenizer(
                 input_text,
@@ -335,9 +335,9 @@ Output MUST be exactly one JSON and nothing else:
                 # messages+=[{'role': 'user', 'content': f"action={action} \naction_input={action_input} \n[tool call error] {e}\n\n Please answer again."}]
                 continue
 
-            result.append(observation)
+            result.append(copy.deepcopy(observation))
             if tool_name=="get_emails":
-                for idx, curr_email in enumerate(copy.deepcopy(observation)):
+                for idx, curr_email in enumerate(observation):
                     curr_email.pop("body")
                     curr_email["body_fetched"] = True
 

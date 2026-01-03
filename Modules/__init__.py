@@ -1,4 +1,5 @@
 from typing  import Optional
+from time import time
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
@@ -167,8 +168,13 @@ Input:
 
 Rules (planning):
 - Each task MUST be exactly ONE agent-step, where one agent performs exactly one purpose, and be assigned to exactly ONE agent.
-- For any task that transforms content (e.g., summarize/translate/rewrite/format), the required source content means the raw text itself (e.g., email body / document text) and is considered "present" ONLY if that raw text is explicitly included in the user input; otherwise you MUST add a prior task to retrieve the raw text before transforming it.
+- Any task that requires specific input data may only proceed if that data is explicitly available in the current context (e.g., user input, prior task outputs, or provided history). If the required data is not available, you MUST add a prior task to obtain it.
 - If a task depends on a previous task output, include that task_id in depends_on.
+
+Rules (agent responsibility):
+- Email Agent be used for any email-related actions, including searching, reading, and sending emails.
+- Answer Agent be used ONLY for language-level tasks such as general answer, summarize, translate, rewrite, or format.
+- Search Agent be used when changeable or time-sensitive information is required.
 
 Rules (entities):
 - Router output may contain placeholders {{P0}}, {{P1}}, ... in high_level_intent.
@@ -289,8 +295,8 @@ class Orchestrator:
             
             tasks = plan["tasks"]
             task_results = {}
-            for task in tasks:
-                # task_id = task["id"]
+            for i, task in enumerate(tasks):
+                # task_id = task["task_id"]
                 # agent_name = task["agent"]
                 # objective = task["objective"]
                 # depends_on = task["depends_on"]
@@ -300,14 +306,18 @@ class Orchestrator:
                 dependent_results = self.get_dependent_result(task["depends_on"], task_results)
                 if dependent_results:
                     dependent_results_string = functions.dumps_json(dependent_results)
-                    input_string+=f"[REFERENCE]:\n{dependent_results_string}\n\n"
+                    input_string+=f"[Context]:\n{dependent_results_string}\n\n"
 
                 task_string = functions.dumps_json({key:val for key, val in task.items() if key in ["objective", "depends_on", "acceptance_criteria"]})
                 input_string += f"[TASK]:\n{task_string}"
                 
+                print(f"\n------------------------------------ TASK {i+1} ------------------------------------\n{task['agent']}")
+                start_time = time()
                 agent_tool_result = self.run_agent(task["agent"], input_string.strip(), language)
-                print(agent_tool_result)
+                end_time = time()
+                print(f"{agent_tool_result=}\n")
+                print(f"Durations: {(end_time-start_time):.2f}")
 
-                task_results[task["id"]] = agent_tool_result
+                task_results[task["task_id"]] = agent_tool_result
                 
 

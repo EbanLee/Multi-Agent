@@ -175,7 +175,6 @@ class EmailSearchTool(Tool):
             "from_contains": "str",
             "subject_contains": "str",
             "limit": "int",
-            "offset": "int",
             "prefetch_multiplier": "int",
         },
         "required": []
@@ -188,8 +187,7 @@ class EmailSearchTool(Tool):
     #         "before_date": {"type": "string", "description": "YYYY-MM-DD"},
     #         "from_contains": {"type": "string"},
     #         "subject_contains": {"type": "string"},
-    #         "limit": {"type": "integer", "default": 5, "minimum": 1, "maximum": 50},
-    #         "offset": {"type": "integer", "default": 0, "minimum": 0},
+    #         "limit": {"type": "integer", "default": 1, "minimum": 1, "maximum": 10},
     #         "prefetch_multiplier": {"type": "integer", "default": 20, "minimum": 1, "maximum": 50},
     #     },
     #     "required": []
@@ -207,8 +205,7 @@ class EmailSearchTool(Tool):
         before_date: Optional[str] = None,
         from_contains: Optional[str] = None,
         subject_contains: Optional[str] = None,
-        limit: int = 5,
-        offset: int = 0,
+        limit: int = 1,
         prefetch_multiplier: int = 20,
     ):  
         """
@@ -217,8 +214,7 @@ class EmailSearchTool(Tool):
         from/subject는 헤더 디코딩 후 로컬 필터링으로 한방 처리.
         """
 
-        limit = max(1, min(limit, 50))
-        offset = max(0, offset)
+        limit = max(1, min(limit, 10))
         prefetch_multiplier = max(1, min(prefetch_multiplier, 50))
         want_max = 300
 
@@ -321,9 +317,9 @@ class EmailSearchTool(Tool):
             # UID 정렬 (오름차순)
             sorted_ids = sorted(ids, key=lambda x: int(x))
 
-            need = offset + limit
+            need = limit
             if mode in ("xgmraw", "utf8"):  # 서버 필터 신뢰 → 최소 여유만
-                want = min(need * 3, want_max)
+                want = min(need * 2, want_max)
             else:   # 로컬 필터 대비 → 넉넉히
                 want = min(need * prefetch_multiplier, want_max)
 
@@ -333,7 +329,7 @@ class EmailSearchTool(Tool):
             fetch_query = "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])"
 
             results = []
-            need_count = offset + limit
+            need_count = limit
 
             for uid in reversed(candidate_ids):
                 status_h, header_data = imap.uid("FETCH", uid, fetch_query)
@@ -370,7 +366,7 @@ class EmailSearchTool(Tool):
                 if len(results) >= need_count:
                     break
 
-            return results[offset: offset + limit]
+            return results[:limit]
 
         finally:
             try:
