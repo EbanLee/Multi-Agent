@@ -163,6 +163,8 @@ def _uid_search_utf8(imap: imaplib.IMAP4_SSL, criteria_tokens: list[str], text_v
     # 마지막 토큰은 literal placeholder로 비워둬야 함
     return imap.uid("SEARCH", "CHARSET", "UTF-8", *criteria_tokens, None)
 
+def norm(s: Optional[str]) -> str:
+    return (s or "").casefold()
 
 class EmailSearchTool(Tool):
     name = "search_emails"
@@ -207,7 +209,7 @@ class EmailSearchTool(Tool):
         subject_contains: Optional[str] = None,
         limit: int = 1,
         prefetch_multiplier: int = 20,
-    ):  
+    ) -> list:  
         """
         Gmail(X-GM-RAW) 가능하면 서버에서 한글/영어 필터링.
         아니면(비Gmail/불안정) 날짜/읽음만 서버에서 제한하고,
@@ -349,11 +351,12 @@ class EmailSearchTool(Tool):
                 # print("from_addr: ", from_addr)
                 # print("date: ", date, "\n")
 
-                # 로컬 필터: Gmail/비Gmail 공통 적용(일관성 + 안전)
-                if subject_contains and subject_contains not in subject:
+                # 로컬 필터
+                if from_contains and norm(from_contains) not in norm(from_addr):
                     continue
-                if from_contains and from_contains not in from_addr:
+                if subject_contains and norm(subject_contains) not in norm(subject):
                     continue
+
 
                 results.append({
                     "uid": uid.decode(errors="replace"),
@@ -403,7 +406,7 @@ class EmailGetTool(Tool):
         self.app_password = app_password
         self.imap_host = imap_host
 
-    def __call__(self, ids: list[str], max_body_chars: int=10000):
+    def __call__(self, ids: list[str], max_body_chars: int=10000)->list:
         ids = ids[max(0, len(ids)-5):]
 
         imap = imaplib.IMAP4_SSL(self.imap_host)

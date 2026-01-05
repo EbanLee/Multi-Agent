@@ -154,9 +154,9 @@ Language rules:
 
 
 
-class AnswerAgent(Agent):
-    name = "Answer Agent"
-    description = "Handles language-level tasks such as summarization, translation, rewriting, formatting, and final user-facing responses."
+class TextAgent(Agent):
+    name = "Text Agent"
+    description = "Handles language-level tasks such as summarization, translation, and rewriting."
 
     def __init__(self, model_registry, model_name, remember_turn=2, max_generate_token=1024, max_repeat=3):
         loaded = model_registry(model_name)       
@@ -168,9 +168,17 @@ class AnswerAgent(Agent):
 
     def build_system_prompt(self, language='Korean'):
         return f"""
-You are the Answer Agent.
+You are the Text Agent.
 Output EXACTLY one JSON object.
-Answer the request in "result" in {language}.
+
+Task:
+- "note": brief explanation.
+- "result": Respond only to requests without explanation.
+
+Language Rule:
+- Use only English in "note"
+- If the user explicitly specifies an output language, "result" uses that language.
+- Otherwise, respond in {language} to "result".
 
 Valid output format:
 {{
@@ -210,7 +218,7 @@ Valid output format:
             except Exception:
                 messages += [{"role":"assistant", "content": output_text}, {"role":"user", "content": "Not JSON. Respond again with ONLY one JSON object."}]
 
-        return output_dict
+        return output_dict["result"]
 
         
 class EmailAgent(Agent):
