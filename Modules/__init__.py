@@ -1,5 +1,6 @@
 from typing  import Optional
 from time import time
+import re
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
@@ -71,11 +72,12 @@ Step 3) route ∈ {"direct","planner","clarification"}:
 - Else
   -> route="direct".
 
-high_level_intent:
+Step 4) Write high_level_intent:
 - Write in English.
-- If the same attribute is requested for multiple entities, MUST use "each" to indicate independent results.
-- MUST NOT contain any substring from preserve_spans (use {{Pn}} placeholders instead).
-- If preserve_spans is non-empty, high_level_intent MUST reference preserved values ONLY via indexed placeholders {{P0}}, {{P1}}, ...
+- If the same attribute is requested for multiple entities, use "each".
+- If preserve_spans is non-empty:
+  - high_level_intent MUST NOT contain any preserved value(preserve_spans) in any form (verbatim, translated, transliterated, paraphrased).
+  - Reference preserved values ONLY via preserve_spans[n] ({{P0}}, {{P1}}, ...).
 
 Output JSON only:
 {{
@@ -135,6 +137,11 @@ Output JSON only:
                         "content": f"Not JSON. Respond again with ONLY one JSON object.",
                     }
                 ]
+
+        # Place holder code로 변환
+        for i, preserve_span in sorted(enumerate(output_dict["preserve_spans"]), key=lambda x: -len(x[1])):
+            pattern = re.escape(preserve_span)
+            output_dict["high_level_intent"] = re.sub(pattern, f"{{P{i}}}", output_dict["high_level_intent"], flags=re.IGNORECASE)
 
         return output_dict
 
