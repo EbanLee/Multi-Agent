@@ -336,19 +336,19 @@ Output MUST be exactly one JSON and nothing else:
             # 도구 사용 성공했을 때 만 result에 저장.
             try:
                 observation = self.tool_registry[tool_name](**tool_args)
+                result.append(copy.deepcopy(observation))
                 print("---------- OBSERVATION ---------- \n", observation, "\n")
             except Exception as e:
-                observation = functions.dumps_json(
-                    {
-                        "ok": False,
-                        "error_type": type(e).__name__,
-                        "error_message": str(e),
+                observation = {
+                    "ok": False,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
                     }
-                )
+                result.append(copy.deepcopy(observation))
+                observation = functions.dumps_json(observation)
                 # messages+=[{'role': 'user', 'content': f"action={action} \naction_input={action_input} \n[tool call error] {e}\n\n Please answer again."}]
                 continue
 
-            result.append(copy.deepcopy(observation))
             if tool_name=="get_emails":
                 for idx, curr_email in enumerate(observation):
                     curr_email.pop("body")

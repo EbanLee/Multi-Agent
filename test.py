@@ -233,7 +233,7 @@ def orchestrator_test():
     orchestrator = Modules.Orchestrator(router=router, planner=planner, agents=agents, finalizer=finalizer)
     
     # user_input = "김민재와 손흥민의 팀은 어디야?"
-    user_input = "okx에서 온 메일 요약해서 김진호에게 보내줘"
+    user_input = "쿠팡에서 온 메일 요약해서 김진호에게 보내줘"
     # user_input = "이차방정식과 삼차방정식 설명"
 
     history=[]

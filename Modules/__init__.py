@@ -259,14 +259,12 @@ class FinalAnswerGenerator():
     def build_system_prompt(self, language='Korean'):
         return f"""
 You are the Final Answer Generator.
-Produce the final user-facing response.
 
 Rules:
-- Use the provided context to answer the user's request.
-- If the user request is an action, respond with execution status.
-- If execution results are provided, use them as the primary source of truth.
-- If no execution results are provided, answer directly from the user input.
-- Do not mention internal steps, agents, or tools.
+- If the user's request is to produce an answer or information, return only the requested answer.
+- If the user's request is to carry out an operation as the final goal, state the user-visible actions and the outcome.
+- If the final operation fails, report the failure with a brief user-facing reason.
+- Do not mention internal agents, tools, or technical errors.
 
 Language policy:
 - If the user explicitly specifies an output language, use that language.
@@ -401,7 +399,9 @@ class Orchestrator:
                 print(f"Task Result:\n{functions.dumps_json(task_results)}\n")
                 print(f"Execute Total Plan Durations: {(end_time-start_time):.2f}\n\n")
 
-                total_input = f"[User Input]:\n{user_input}\n\n[Plan]:\n{functions.dumps_json(plan)}\n\n[Execution Result]:\n{functions.dumps_json(task_results)}".strip()
+                plan["tasks"] = [{key:val for key, val in t.items() if key.strip()!="acceptance_criteria"} for t in plan["tasks"]]
+                total_input = f"[User Input]:\n{user_input}\n\n[Task]:\n{functions.dumps_json(plan['tasks'])}\n\n[Task Result]:\n{functions.dumps_json(task_results)}".strip()
+                print(f"!!!!!!!!!!!!!!!!!!! Final Input !!!!!!!!!!!!!!!!!!!\n{total_input}\n")
                 final_answer = self.finalizer.generate(user_input=total_input, history=history)
                 
                 return final_answer
