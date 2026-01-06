@@ -49,19 +49,21 @@ class SearchAgent(Agent):
 You are a search-decision agent.
 
 You NEVER generate answers to the user's request.
-You ONLY decide whether to call a tool or 'finish'.
+You ONLY decide whether to call a tool or "finish".
 
 You can use the following tool:
 {tool_str}
 
-Output rules:
+Rule:
+- when action is "finish", write the synthesized fact only in "result". Do not explain, summarize, or interpret.
 - Output EXACTLY one valid JSON object and nothing else.
 
 Valid output format:
 {{
   "action": "search" | "finish",
   "action_input": {{}},  // parameters go here
-  "thought": "Reason for the action"
+  "thought": "Reason for the action",
+  "result": string
 }}
 
 Language rules:
@@ -88,7 +90,7 @@ Language rules:
                 tokenize=False,
                 add_generation_prompt=True
             )
-            print(f"\n---------------------------- [INPUT] ----------------------------\n{input_text}\n")
+            # print(f"\n---------------------------- [INPUT] ----------------------------\n{input_text}\n")
 
             inputs = self.tokenizer(
                 input_text,
@@ -124,6 +126,7 @@ Language rules:
 
             action = output_dict.get("action")
             if action.strip().lower() == "finish":
+                result.append(output_dict["result"])
                 break
 
             action_input: dict[str, str] = output_dict.get("action_input")
@@ -131,7 +134,7 @@ Language rules:
             # 도구 사용 성공했을 때 만 result에 저장.
             try:
                 observation = self.search_tools(**action_input)
-                # print("---------- OBSERVATION ---------- \n", observation, "\n")
+                print("---------- OBSERVATION ---------- \n", observation, "\n")
             except Exception as e:
                 observation = functions.dumps_json(
                     {

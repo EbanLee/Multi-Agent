@@ -57,29 +57,26 @@ Step 1) Select using_agents:
 - Text transformation (summarize/translate/rewrite/format/draft) -> include "Text Agent"
 
 Step 2) preserve_spans:
-- Preserve user-provided proper nouns or identifiers verbatim
-  (person/org/service/app names, emails, URLs, IDs, explicit dates, file names).
+- Extract each user-provided proper noun or identifier such as: person name, organization/service/app name, URL, ID, explicit date, and file name.
+- Copy each string exactly as it appears in the user input.
 - Add once, in first-appearance order.
-- Copy exactly as-is.
-- Refer only via {{P0}}, {{P1}}, ... in high_level_intent.
 
 Step 3) route ∈ {"direct","planner","clarification"}:
-- If a requested ACTION lacks required fields
-  (e.g., email send/reply/forward: to/subject/body or reply target)
+- If a requested ACTION lacks required fields (e.g., email send/reply/forward requires to/subject/body or reply target),
   -> route="clarification" and write clarifying_question in {language}.
 - Else if using_agents contains "Email Agent" or "Search Agent"
   -> route="planner".
 - Else
   -> route="direct".
 
-Step 4) Write high_level_intent:
+Step 4) high_level_intent:
 - Write in English.
-- If the same attribute is requested for multiple entities, use "each".
 - If preserve_spans is non-empty:
-  - high_level_intent MUST NOT contain any preserved value(preserve_spans) in any form (verbatim, translated, transliterated, paraphrased).
-  - Reference preserved values ONLY via preserve_spans[n] ({{P0}}, {{P1}}, ...).
+  - high_level_intent MUST explicitly contain placeholders({{P0}}, {{P1}}, ...) for EVERY item in preserve_spans (no missing placeholders).
+  - EVERY item in preserve_spans MUST NOT be mentioned in any other form (including literal strings, translations, romanizations, paraphrases, roles, or descriptions).
+  - Except for placeholders, the entire high_level_intent MUST be in English.
 
-Output JSON only:
+  Output JSON only:
 {{
   "route": "direct" | "planner" | "clarification",
   "clarifying_question": "",
@@ -167,24 +164,23 @@ Input:
 - User input
 - Router output: using_agents, high_level_intent, preserve_spans.
 
-Rules:
-- ONE task = ONE agent = ONE action (ONE verb) on ONE target.
-- If a task requires more than one action or more than one target, it MUST be split into separate tasks; do NOT use "and" to combine targets in a single objective.
-- If a task needs data not present in the current context (e.g., user input, prior task outputs, or provided history) yet, MUST add a prior task to obtain that data.
-- If a task depends on a previous task output, include that task_id in depends_on.
+Core rules:
+- Each task MUST perform exactly ONE action on exactly ONE identifier value.
+- Each task MUST be split into the smallest meaningful unit: one action (verb) on one target (atomic noun).
+- If required data is not available, create a prior task to obtain it.
+- If a task uses the output of prior tasks, list that task_id in depends_on.
 
 Agent selection:
 - Email Agent: any email-related action (search, read, send).
-- Search Agent: time-sensitive/changeable info is required (e.g., People, Organizations, price, ranking, Events).
-- Text Agent: ONLY language-level tasks (answer, summarize, translate, rewrite, format).
+- Search Agent: requires time-sensitive or changeable information.
+- Text Agent: language-level tasks only (answer, summarize, translate, rewrite, format).
 
-Constraints:
-- You may replace placeholders {{P0}},{{P1}},... in high_level_intent using preserve_spans values.
-- When multiple entities are present, create separate tasks per entity unless a joint relationship is explicitly requested.
-- You MUST NOT introduce new concrete entities beyond those present in the user input or preserve_spans.
+Entity & placeholder constraints:
+- Use preserve_spans as is to resolve {{P0}}, {{P1}}, ... when writing objective and acceptance_criteria.
+- Do NOT introduce any concrete entities not present in the user input or preserve_spans.
 
-Output rules:
-- Write objective and acceptance_criteria in English.
+Output constraints:
+- Except for items in preserve_spans, objective and acceptance_criteria MUST be written in English.
 
 Output JSON only:
 {{
@@ -360,12 +356,12 @@ class Orchestrator:
             
             print(f"\n------------------------------------ TASK {i+1} ------------------------------------\n{task['agent']}")
             start_time = time()
-            agent_tool_result = self.run_agent(task["agent"], input_string.strip(), history, language)
+            agent_result = self.run_agent(task["agent"], input_string.strip(), history, language)
             end_time = time()
-            print(f"{agent_tool_result=}\n")
+            print(f"{agent_result=}\n")
             print(f"Task Durations: {(end_time-start_time):.2f}\n")
 
-            task_results[task["task_id"]] = agent_tool_result
+            task_results[task["task_id"]] = agent_result
         
         return task_results
 
@@ -402,7 +398,7 @@ class Orchestrator:
                 task_results = self.execute_plans(plan, history, language)
                 end_time = time()
                 
-                print(f"Task Result:\n{task_results}\n")
+                print(f"Task Result:\n{functions.dumps_json(task_results)}\n")
                 print(f"Execute Total Plan Durations: {(end_time-start_time):.2f}\n\n")
 
                 total_input = f"[User Input]:\n{user_input}\n\n[Plan]:\n{functions.dumps_json(plan)}\n\n[Execution Result]:\n{functions.dumps_json(task_results)}".strip()
