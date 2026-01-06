@@ -165,8 +165,8 @@ Input:
 - Router output: using_agents, high_level_intent, preserve_spans.
 
 Core rules:
-- Each task MUST perform exactly ONE action on exactly ONE identifier value.
-- Each task MUST be split into the smallest meaningful unit: one action (verb) on one target (atomic noun).
+- Each task MUST perform exactly ONE action on exactly ONE entity-attribute pair.
+- Each task MUST be split into the smallest meaningful unit: one action, entity and attribute.
 - If required data is not available, create a prior task to obtain it.
 - If a task uses the output of prior tasks, list that task_id in depends_on.
 
@@ -263,10 +263,10 @@ Produce the final user-facing response.
 
 Rules:
 - Use the provided context to answer the user's request.
-- If execution results are provided, incorporate them accurately.
+- If the user request is an action, respond with execution status.
+- If execution results are provided, use them as the primary source of truth.
 - If no execution results are provided, answer directly from the user input.
 - Do not mention internal steps, agents, or tools.
-- Follow the language policy.
 
 Language policy:
 - If the user explicitly specifies an output language, use that language.

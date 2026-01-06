@@ -55,7 +55,9 @@ You can use the following tool:
 {tool_str}
 
 Rule:
-- when action is "finish", write the synthesized fact only in "result". Do not explain, summarize, or interpret.
+- Each search MUST target exactly ONE entity-attribute pair.
+- When action is not "finish", the "result" MUST be empty.
+- When action is "finish", write the synthesized fact only in "result". Do not explain, summarize, or interpret.
 - Output EXACTLY one valid JSON object and nothing else.
 
 Valid output format:
@@ -63,7 +65,7 @@ Valid output format:
   "action": "search" | "finish",
   "action_input": {{}},  // parameters go here
   "thought": "Reason for the action",
-  "result": string
+  "result": "synthesized fact"
 }}
 
 Language rules:
@@ -81,7 +83,7 @@ Language rules:
 
         observation = None
         result = []
-        for _ in range(self.max_repeat):
+        for i in range(self.max_repeat):
             if observation is not None:
                 messages.append({'role':'tool', 'content':observation})
 
@@ -106,7 +108,7 @@ Language rules:
 
             generated_output = output[0][len(inputs.input_ids[0]):].tolist()
             output_text = self.tokenizer.decode(generated_output, skip_special_tokens=True)
-            print("\n---------------------------- [OUTPUT] ----------------------------\n")
+            print(f"\n---------------------------- [OUTPUT {i}] ----------------------------\n")
             print(output_text)
             print(f"{len(generated_output)=}\n")
 
