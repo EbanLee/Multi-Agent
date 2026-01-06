@@ -39,8 +39,8 @@ class WebSearchTool(Tool):
             title = item.get("title", "")
             title = title.replace("<b>", "").replace("</b>", "")
             body = item.get("body", "")
-            published = item.get("published") or item.get("date") or "unknown"
+            # published = item.get("published") or item.get("date") or "unknown"
             # url = item.get("href", "")
-            results[i] = f"({i+1}) Title: {title}\n Date: {published}\n context: {body}\n"
+            results[i] = f"({i+1}) Title: {title}\n context: {body}\n"
 
         return "\n".join(results)
