@@ -2,7 +2,7 @@
 import torch
 
 from utils import file_utils, functions
-import Agents
+import Modules.Agents as Agents
 
 config = file_utils.read_yaml("config.yaml")
 print(config)

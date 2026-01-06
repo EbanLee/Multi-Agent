@@ -11,7 +11,7 @@ def dumps_json(dictionary: dict) -> str:
     """
     dict를 JSON형태의 str로 바꾸는 함수
     """
-    return json.dumps(dictionary, ensure_ascii=False)
+    return json.dumps(dictionary, ensure_ascii=False, indent=2)
 
 def detect_language(text: str) -> str:
     """

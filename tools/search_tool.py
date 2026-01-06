@@ -4,11 +4,14 @@ from tools import Tool
 
 class WebSearchTool(Tool):
     name = "web_search"
-    description = (
-        "- Use this tool to search the web."
-        "- Parameters:"
-        "  - \"query\": the search query string"
-        )
+    description="Search for query on the web."
+    args_schema={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string"},
+        },
+        "required": ["query"],
+    }
 
     def __call__(self, query: str, results_num: int = 4) -> str:
         """
@@ -36,7 +39,8 @@ class WebSearchTool(Tool):
             title = item.get("title", "")
             title = title.replace("<b>", "").replace("</b>", "")
             body = item.get("body", "")
+            published = item.get("published") or item.get("date") or "unknown"
             # url = item.get("href", "")
-            results[i] = f"({i+1}) Title: {title}\n context: {body}\n"
+            results[i] = f"({i+1}) Title: {title}\n Date: {published}\n context: {body}\n"
 
         return "\n".join(results)
