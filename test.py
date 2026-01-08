@@ -254,7 +254,7 @@ def orchestrator_test():
 
     user_input = """
 [User Input]:
-쿠팡에서 온 메일 요약해서 김지한에게 보내줘
+쿠팡에서 온 메일 요약해서 김지한에게 보내줘. 그리고 메일 내용 보여줘
 
 [Execution Plan]:
 [
