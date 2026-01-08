@@ -351,8 +351,6 @@ Output MUST be exactly one JSON and nothing else:
 
                     observation[idx]=curr_email
 
-            observation = functions.dumps_json({"ok": True, "results": observation})
-
         if not result:
             return None
 

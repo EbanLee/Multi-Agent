@@ -233,82 +233,84 @@ def orchestrator_test():
     orchestrator = Modules.Orchestrator(router=router, planner=planner, agents=agents, finalizer=finalizer)
     
     # user_input = "김민재와 손흥민의 팀은 어디야?"
-    user_input = "쿠팡에서 온 메일 요약해서 김진호에게 보내줘"
+    # user_input = "쿠팡에서 온 메일 요약해서 김진호에게 보내줘"
     # user_input = "이차방정식과 삼차방정식 설명"
+    # user_input = "쿠팡에서 온 메일 요약해서 김지수에게 보내줘. 그리고 내용 보여줘"
+    
 
     history=[]
 
-    # while True:
-    #     user_input = input("입력: ")
-    #     if user_input.lower().strip()=="exit":
-    #         break
-    #     start_time = time()
-    #     print("\n사용자 입력: ", user_input)
-    #     result = orchestrator.run(user_input=user_input, history=history)
-    #     end_time = time()
-    #     print(f"\nOrchestrator Result:\n{result}\n")
-    #     print(f"Total Durations: {(end_time-start_time):.2f}\n")
-    #     print("\n--------------------------- ! ---------------------------\n")
-    #     history += [{"role":"user", "content":user_input}, {"role":"assistant", "content":result}]
+    while True:
+        user_input = input("입력: ")
+        if user_input.lower().strip()=="exit":
+            break
+        start_time = time()
+        print("\n사용자 입력: ", user_input)
+        result = orchestrator.run(user_input=user_input, history=history)
+        end_time = time()
+        print(f"\nOrchestrator Result:\n{result}\n")
+        print(f"Total Durations: {(end_time-start_time):.2f}\n")
+        print("\n--------------------------- ! ---------------------------\n")
+        history += [{"role":"user", "content":user_input}, {"role":"assistant", "content":result}]
         
 
-    user_input = """
-[User Input]:
-쿠팡에서 온 메일 요약해서 김지한에게 보내줘. 그리고 메일 내용 보여줘
+#     user_input = """
+# [User Input]:
+# 쿠팡에서 온 메일 요약해서 김지한에게 보내줘. 그리고 메일 내용 보여줘
 
-[Execution Plan]:
-[
-  {
-    "task_id": "t1",
-    "agent": "Email Agent",
-    "objective": "Read the email from 쿠팡",
-    "depends_on": []
-  },
-  {
-    "task_id": "t2",
-    "agent": "Text Agent",
-    "objective": "Summarize the email from 쿠팡",
-    "depends_on": [
-      "t1"
-    ]
-  },
-  {
-    "task_id": "t3",
-    "agent": "Email Agent",
-    "objective": "Send the summarized email to 김지한",
-    "depends_on": [
-      "t2"
-    ]
-  }
-]
+# [Execution Plan]:
+# [
+#   {
+#     "task_id": "t1",
+#     "agent": "Email Agent",
+#     "objective": "Read the email from 쿠팡",
+#     "depends_on": []
+#   },
+#   {
+#     "task_id": "t2",
+#     "agent": "Text Agent",
+#     "objective": "Summarize the email from 쿠팡",
+#     "depends_on": [
+#       "t1"
+#     ]
+#   },
+#   {
+#     "task_id": "t3",
+#     "agent": "Email Agent",
+#     "objective": "Send the summarized email to 김지한",
+#     "depends_on": [
+#       "t2"
+#     ]
+#   }
+# ]
 
-[Execution Result]:
-{
-  "t1": [
-    {
-      "id": "7393",
-      "from_addr": "쿠팡페이 <no-reply@coupangpay.com>",
-      "to": "rudwo6769@gmail.com",
-      "subject": "[쿠팡페이] 개인정보 이용∙제공 내역 및 수집 출처 안내",
-      "date": "Thu, 25 Dec 2025 08:11:14 +0900 (KST)",
-      "body": "Document \n\n 쿠팡페이 개인정보 이용·제공 내역 및 수집 출처 안내\n\n 안녕하세요 쿠팡페이입니다.\n\n 쿠팡페이를 이용해 주시는 고객 여러분께 감사드리며,\n\n 개인정보 보호법 제20조의 2(개인정보 이용•제공 내역의 통지) 및 동법 제 20조(정보주체 이외로부터 수집한 개인정보의 수집 출처 등 통지)에 따라 개인정보 이용•제공 내역 및 수집 출처에 관하여 안내드립니다.\n\n 고객님께서는 아래 버튼으로 개인정보 처리 내용을 확인하실 수 있습니다.\n\n 쿠팡페이 개인정보 처리방침 확인 \n\n 쿠팡페이 개인정보 수집출처 확인 \n\n 당사가 타사로부터 주기적으로 제공받은 고객님의 개인정보 처리를 원하지 않는 경우, 개인정보 처리의 정지를 요구하거나 동의를 철회하실 수 있습니다.\n\n 단, 개인정보 처리의 정지를 요구하거나 동의를 철회하실 경우, 쿠팡페이 서비스 이용에 제한이 있을 수 있습니다.\n\n 쿠팡페이는 고객님의 소중한 개인정보를 안전하게 관리하기 위하여 최선을 다하겠습니다.\n\n 감사합니다.\n\n 본 메일은 쿠팡페이 이용약관에 동의하신 모든 고객님께 연 1회 발송됩니다.\n\n 2025년 12월 23일 기준으로 작성되었으며, 이후 쿠팡페이에서 탈퇴하셨더라도 메일을 받으실 수 있습니다.\n\n 개인정보 이용·제공 내역 안내 메일 수신을 원치않으시는 경우, 수신거부 를 클릭하세요. \n(단, 개인정보 수집 출처 안내 메일은 관련 법령에 따라 수신동의 여부와 관계없이 발송되므로, 개인정보 이용·제공 내역 안내 메일에 수신거부 하시더라도 별도 발송될 수 있습니다.)\n\n 쿠팡페이㈜ |\n 대표이사: IYER VIJESH V, 정찬묵 |\n 사업자등록번호: 105-87-65162 |\n (05510) 서울특별시 송파구 송파대로 570, 9층(신천동) |\n Tel: 1670-9892\n\n ⓒCoupang Pay, Ltd All rights reserved.\n\n ※ 본 메일은 발신 전용 메일이며, 법률에 근거하여 발송됩니다."
-    }
-  ],
-  "t2": {
-    "note": "Summarize the email from 쿠팡.",
-    "result": "쿠팡페이는 개인정보 이용 및 제공 내역과 수집 출처를 안내하며, 고객이 개인정보 처리의 정지를 요구하거나 동의를 철회할 수 있지만, 이 경우 쿠팡페이 서비스 이용에 제한이 있을 수 있습니다. 고객은 개인정보 처리방침과 수집출처를 확인할 수 있는 링크를 제공합니다."
-  },
-  "t3": {
-    "status": "ok",
-    "sent_to": [
-      "kimjihan@example.com"
-    ],
-    "subject": "Summary of the email from 쿠팡"
-  }
-}
-""".strip()
+# [Execution Result]:
+# {
+#   "t1": [
+#     {
+#       "id": "7393",
+#       "from_addr": "쿠팡페이 <no-reply@coupangpay.com>",
+#       "to": "rudwo6769@gmail.com",
+#       "subject": "[쿠팡페이] 개인정보 이용∙제공 내역 및 수집 출처 안내",
+#       "date": "Thu, 25 Dec 2025 08:11:14 +0900 (KST)",
+#       "body": "Document \n\n 쿠팡페이 개인정보 이용·제공 내역 및 수집 출처 안내\n\n 안녕하세요 쿠팡페이입니다.\n\n 쿠팡페이를 이용해 주시는 고객 여러분께 감사드리며,\n\n 개인정보 보호법 제20조의 2(개인정보 이용•제공 내역의 통지) 및 동법 제 20조(정보주체 이외로부터 수집한 개인정보의 수집 출처 등 통지)에 따라 개인정보 이용•제공 내역 및 수집 출처에 관하여 안내드립니다.\n\n 고객님께서는 아래 버튼으로 개인정보 처리 내용을 확인하실 수 있습니다.\n\n 쿠팡페이 개인정보 처리방침 확인 \n\n 쿠팡페이 개인정보 수집출처 확인 \n\n 당사가 타사로부터 주기적으로 제공받은 고객님의 개인정보 처리를 원하지 않는 경우, 개인정보 처리의 정지를 요구하거나 동의를 철회하실 수 있습니다.\n\n 단, 개인정보 처리의 정지를 요구하거나 동의를 철회하실 경우, 쿠팡페이 서비스 이용에 제한이 있을 수 있습니다.\n\n 쿠팡페이는 고객님의 소중한 개인정보를 안전하게 관리하기 위하여 최선을 다하겠습니다.\n\n 감사합니다.\n\n 본 메일은 쿠팡페이 이용약관에 동의하신 모든 고객님께 연 1회 발송됩니다.\n\n 2025년 12월 23일 기준으로 작성되었으며, 이후 쿠팡페이에서 탈퇴하셨더라도 메일을 받으실 수 있습니다.\n\n 개인정보 이용·제공 내역 안내 메일 수신을 원치않으시는 경우, 수신거부 를 클릭하세요. \n(단, 개인정보 수집 출처 안내 메일은 관련 법령에 따라 수신동의 여부와 관계없이 발송되므로, 개인정보 이용·제공 내역 안내 메일에 수신거부 하시더라도 별도 발송될 수 있습니다.)\n\n 쿠팡페이㈜ |\n 대표이사: IYER VIJESH V, 정찬묵 |\n 사업자등록번호: 105-87-65162 |\n (05510) 서울특별시 송파구 송파대로 570, 9층(신천동) |\n Tel: 1670-9892\n\n ⓒCoupang Pay, Ltd All rights reserved.\n\n ※ 본 메일은 발신 전용 메일이며, 법률에 근거하여 발송됩니다."
+#     }
+#   ],
+#   "t2": {
+#     "note": "Summarize the email from 쿠팡.",
+#     "result": "쿠팡페이는 개인정보 이용 및 제공 내역과 수집 출처를 안내하며, 고객이 개인정보 처리의 정지를 요구하거나 동의를 철회할 수 있지만, 이 경우 쿠팡페이 서비스 이용에 제한이 있을 수 있습니다. 고객은 개인정보 처리방침과 수집출처를 확인할 수 있는 링크를 제공합니다."
+#   },
+#   "t3": {
+#     "status": "ok",
+#     "sent_to": [
+#       "kimjihan@example.com"
+#     ],
+#     "subject": "Summary of the email from 쿠팡"
+#   }
+# }
+# """.strip()
     
-    print(orchestrator.finalizer.generate(user_input=user_input, history=history))
+#     print(orchestrator.finalizer.generate(user_input=user_input, history=history))
     
 
 if __name__=="__main__":

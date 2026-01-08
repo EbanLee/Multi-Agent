@@ -52,12 +52,12 @@ Available Agents:
 {agent_descript_str}
 
 Step 1) Select using_agents:
-- Email operations (read/search/list/send/reply/forward) -> include "Email Agent"
-- Time-sensitive/changeable info (current/latest/recent, people/org roles, prices, rankings, events) -> include "Search Agent"
-- Text transformation (summarize/translate/rewrite/format/draft) -> include "Text Agent"
+- Email operations (read/search/send) -> include "Email Agent"
+- Time-sensitive/changeable info (current/latest/recent, people/org roles, prices, rankings) -> include "Search Agent"
+- Text task (summarize/translate/rewrite/format) -> include "Text Agent"
 
 Step 2) preserve_spans:
-- Extract each user-provided proper noun or identifier such as: person name, organization/service/app name, URL, ID, explicit date, and file name.
+- Extract each user-provided proper noun or identifier such as: person name, organization/service/app name, URL, ID, and file name.
 - Copy each string exactly as it appears in the user input.
 - Add once, in first-appearance order in the user input.
 
@@ -72,9 +72,11 @@ Step 3) route ∈ {"direct","planner","clarification"}:
 Step 4) high_level_intent:
 - Write in English.
 - If preserve_spans is non-empty:
-  - high_level_intent MUST explicitly contain placeholders({{P0}}, {{P1}}, ...) for EVERY item in preserve_spans (no missing placeholders).
-  - EVERY item in preserve_spans MUST NOT be mentioned in any other form (including literal strings, translations, romanizations, paraphrases, roles, or descriptions).
+  - Placeholders are written as {{P0}}, {{P1}}, ... in the same order as preserve_spans.
+  - high_level_intent MUST contain each placeholder; place placeholders only where semantically appropriate.
+  - Except for placeholders, preserve_spans MUST NOT appear in any other forms of high_level_intent (translations, romanizations, or paraphrases).
   - Except for placeholders, the entire high_level_intent MUST be in English.
+- NEVER mention the agent.
 
   Output JSON only:
 {{
@@ -97,7 +99,7 @@ Step 4) high_level_intent:
                 tokenize=False,
                 add_generation_prompt=True,
             )
-            # print(f"\n---------------------------- [INPUT] ----------------------------\n{input_text}\n")
+            print(f"\n---------------------------- [INPUT] ----------------------------\n{input_text}\n")
 
             inputs = self.tokenizer(
             input_text,
@@ -155,7 +157,7 @@ class Planner:
         agent_descript_str = "\n".join([f"- {name}: {agent.description}" for name, agent in self.available_agents.items()])
         return f"""
 You are the Planner.
-Create an execution plan sequentially in JSON object only.
+Create an execution plan in execution order in JSON only.
 
 Available Agents:
 {agent_descript_str}
@@ -167,17 +169,18 @@ Input:
 Core rules:
 - Each task MUST perform exactly ONE action on exactly ONE entity-attribute pair.
 - Each task MUST be split into the smallest meaningful unit: one action, entity and attribute.
-- If required data is not present in the user input or conversation history, create a prior task to obtain it.
+- If required data is not available, create a prior task to obtain it.
 - If a task uses the output of prior tasks, list that task_id in depends_on.
+- Any user-facing tasks (show/display) MUST be scheduled last unless the user explicitly specifies an earlier order (e.g., "first/before/after").
 
 Agent selection:
+- Text Agent: language-only tasks (summarize/translate/rewrite/format) and user-facing tasks (show/display/present/print/render).
 - Email Agent: any email-related action (search, read, send).
 - Search Agent: requires time-sensitive or changeable information.
-- Text Agent: language-level tasks only (answer, summarize, translate, rewrite, format).
 
 Entity & placeholder constraints:
 - Use preserve_spans as is instead of {{P0}}, {{P1}}, ... when writing objective and acceptance_criteria.
-- Do NOT introduce any concrete entities not present in the user input or preserve_spans.
+- Do NOT introduce any concrete entities that are not explicitly mentioned in the user input or preserve_spans.
 
 Output constraints:
 - Except for items in preserve_spans, objective and acceptance_criteria MUST be written in English.
@@ -263,14 +266,15 @@ You are the Final Answer Generator.
 Rules:
 - If the user requests text (e.g., answer, information, explanation), return the requested response.
 - If the user request involves performing external actions or modifying system state (e.g., sending, saving, updating):
-  - Default behavior:
-    - Return status of the actions performed.
-    - Do NOT return any generated text or artifacts.
-  - Return generated content ONLY if the user explicitly requests it.
+  - Default behavior: return only the status of the actions performed.
+  - Do NOT return generated content.
+  - EXCEPTION: If the user explicitly requests the content to be shown/displayed/presented, return that content.
+- If you return an action status and one or more requested contents, separate them using clear headings.
+- Never mention internal names or identifiers.
 
 Language policy:
 - If the user explicitly specifies an output language, use that language.
-- Otherwise, respond in {language}.
+- Otherwise, All responses must be in {language}.
 """.strip()
 
     def generate(self, user_input, history, language='Korean'):
@@ -362,6 +366,12 @@ class Orchestrator:
             print(f"Task Durations: {(end_time-start_time):.2f}\n")
 
             task_results[task["task_id"]] = agent_result
+
+            # 실패하면 종료
+            if isinstance(agent_result, dict):
+                agent_success = agent_result.get("ok", True)
+                if not agent_success:
+                    break
         
         return task_results
 
@@ -375,7 +385,7 @@ class Orchestrator:
             router_output = self.run_router(f"[User Input]:\n{user_input}", history, language)
             end_time = time()
             print(f"Route:\n{functions.dumps_json(router_output)}\n")
-            print(f"Durations: {(end_time-start_time):.2f}\n\n")
+            print(f"Routing Durations: {(end_time-start_time):.2f}\n\n")
 
             if router_output["route"]=="clarification":
                 return router_output["clarifying_question"]
