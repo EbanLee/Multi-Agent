@@ -520,5 +520,5 @@ class EmailSendTool:
             server.login(self.email_addr, self.app_password)
             server.sendmail(self.email_addr, rcpt, msg.as_string())
 
-        return {"sent_to": rcpt, "subject": subject}
+        return {"status": "ok", "sent_to": rcpt, "subject": subject}
 
