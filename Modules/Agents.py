@@ -27,14 +27,9 @@ class DummyAgent(Agent):
 
 class SearchAgent(Agent):
     name = "Search Agent"
-    description = "fetch information from the web."
-    # (
-    #     "Use this agent when answering the question requires checking current or "
-    #     "changing facts, numeric values, or official sources, even if the question "
-    #     "does not explicitly mention recency."
-    # )
+    description = "search information from the web."
 
-    def __init__(self, model_registry, model_name, remember_turn=2, max_generate_token=256, max_repeat=3):
+    def __init__(self, model_registry, model_name, remember_turn=2, max_generate_token=256, max_repeat=4):
         loaded = model_registry(model_name)
         self.tokenizer = loaded.tokenizer
         self.model = loaded.model
@@ -58,6 +53,7 @@ Rule:
 - Each search MUST target exactly ONE entity-attribute pair.
 - When action is not "finish", the "result" MUST be empty.
 - When action is "finish", write the synthesized fact only in "result". Do not explain, summarize, or interpret.
+- If the retrieved information is insufficient, revise the search query and try again.
 - Output EXACTLY one valid JSON object and nothing else.
 
 Valid output format:
@@ -223,7 +219,7 @@ Valid output format:
             except Exception:
                 messages += [{"role":"assistant", "content": output_text}, {"role":"user", "content": "Not JSON. Respond again with ONLY one JSON object."}]
 
-        return output_dict["result"]
+        return output_dict
 
         
 class EmailAgent(Agent):
@@ -283,7 +279,6 @@ Output MUST be exactly one JSON and nothing else:
         observation = None
         result = []
         for step in range(self.max_repeat):
-            print(f"\nSTEP {step+1}: ")
             if observation is not None:
                 messages.append({'role':'tool', 'content':observation})
 
@@ -308,7 +303,7 @@ Output MUST be exactly one JSON and nothing else:
 
             generated_output = output[0][len(inputs.input_ids[0]):].tolist()
             output_text = self.tokenizer.decode(generated_output, skip_special_tokens=True)
-            print("\n---------------------------- [OUTPUT] ----------------------------\n")
+            print(f"\n---------------------------- [STEP_{step+1} OUTPUT] ----------------------------\n")
             print(output_text)
             print(f"{len(generated_output)=}\n")
 
@@ -336,27 +331,25 @@ Output MUST be exactly one JSON and nothing else:
             # 도구 사용 성공했을 때 만 result에 저장.
             try:
                 observation = self.tool_registry[tool_name](**tool_args)
+                result.append(copy.deepcopy(observation))
                 print("---------- OBSERVATION ---------- \n", observation, "\n")
             except Exception as e:
-                observation = functions.dumps_json(
-                    {
-                        "ok": False,
-                        "error_type": type(e).__name__,
-                        "error_message": str(e),
+                observation = {
+                    "ok": False,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
                     }
-                )
+                result.append(copy.deepcopy(observation))
+                observation = functions.dumps_json(observation)
                 # messages+=[{'role': 'user', 'content': f"action={action} \naction_input={action_input} \n[tool call error] {e}\n\n Please answer again."}]
                 continue
 
-            result.append(copy.deepcopy(observation))
             if tool_name=="get_emails":
                 for idx, curr_email in enumerate(observation):
                     curr_email.pop("body")
                     curr_email["body_fetched"] = True
 
                     observation[idx]=curr_email
-
-            observation = functions.dumps_json({"ok": True, "results": observation})
 
         if not result:
             return None

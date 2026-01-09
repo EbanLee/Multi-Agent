@@ -34,7 +34,7 @@ class ModelRegistry:
 
 
 class Router:
-    def __init__(self, model_registry, model_name, available_agents:Optional[dict]=None, remember_turn:int=1, max_generate_token:int=128):
+    def __init__(self, model_registry:ModelRegistry, model_name, available_agents:Optional[dict[str, Agents.Agent]]=None, remember_turn:int=1, max_generate_token:int=128):
         loaded = model_registry(model_name)
         self.tokenizer = loaded.tokenizer
         self.model = loaded.model
@@ -52,29 +52,31 @@ Available Agents:
 {agent_descript_str}
 
 Step 1) Select using_agents:
-- Email operations (read/search/list/send/reply/forward) -> include "Email Agent"
-- Time-sensitive/changeable info (current/latest/recent, people/org roles, prices, rankings, events) -> include "Search Agent"
-- Text transformation (summarize/translate/rewrite/format/draft) -> include "Text Agent"
+- Email operations (read/search/send) -> include "Email Agent"
+- Time-sensitive/changeable info (current/latest, people/org roles, rankings) -> include "Search Agent"
+- Text tasks (summarize/rewrite/format) -> include "Text Agent"
 
 Step 2) preserve_spans:
-- Extract each user-provided proper noun or identifier such as: person name, organization/service/app name, URL, ID, explicit date, and file name.
-- Copy each string exactly as it appears in the user input.
+- Extract each proper nouns or identifiers (e.g., people name, organization/service name, URL, ID, file name) from user input.
+- Copy each string exactly as-is.
 - Add once, in first-appearance order.
 
 Step 3) route ∈ {"direct","planner","clarification"}:
-- If a requested ACTION lacks required fields (e.g., email send/reply/forward requires to/subject/body or reply target),
+- If required information is missing or a reference is ambiguous:
   -> route="clarification" and write clarifying_question in {language}.
-- Else if using_agents contains "Email Agent" or "Search Agent"
+- Else if using_agents contains "Email Agent" or "Search Agent":
   -> route="planner".
-- Else
+- Else:
   -> route="direct".
 
 Step 4) high_level_intent:
 - Write in English.
 - If preserve_spans is non-empty:
-  - high_level_intent MUST explicitly contain placeholders({{P0}}, {{P1}}, ...) for EVERY item in preserve_spans (no missing placeholders).
-  - EVERY item in preserve_spans MUST NOT be mentioned in any other form (including literal strings, translations, romanizations, paraphrases, roles, or descriptions).
+  - Placeholders are written as {{P0}}, {{P1}}, ... in the same order as preserve_spans.
+  - high_level_intent MUST contain each placeholder.
+  - Except for placeholders, preserve_spans MUST NOT appear in any other forms (translations, romanizations, or paraphrases).
   - Except for placeholders, the entire high_level_intent MUST be in English.
+- NEVER mention the agent.
 
   Output JSON only:
 {{
@@ -97,7 +99,7 @@ Step 4) high_level_intent:
                 tokenize=False,
                 add_generation_prompt=True,
             )
-            # print(f"\n---------------------------- [INPUT] ----------------------------\n{input_text}\n")
+            print(f"\n---------------------------- [INPUT] ----------------------------\n{input_text}\n")
 
             inputs = self.tokenizer(
             input_text,
@@ -143,7 +145,7 @@ Step 4) high_level_intent:
         return output_dict
 
 class Planner:
-    def __init__(self, model_registry, model_name, available_agents:Optional[dict]=None, remember_turn:int=2, max_generate_token:int=512):
+    def __init__(self, model_registry:ModelRegistry, model_name, available_agents:Optional[dict[str, Agents.Agent]]=None, remember_turn:int=2, max_generate_token:int=512):
         loaded = model_registry(model_name)
         self.tokenizer = loaded.tokenizer
         self.model = loaded.model
@@ -155,7 +157,7 @@ class Planner:
         agent_descript_str = "\n".join([f"- {name}: {agent.description}" for name, agent in self.available_agents.items()])
         return f"""
 You are the Planner.
-Create an execution plan as a JSON object only.
+Create an execution plan in execution order. Output JSON only.
 
 Available Agents:
 {agent_descript_str}
@@ -165,22 +167,22 @@ Input:
 - Router output: using_agents, high_level_intent, preserve_spans.
 
 Core rules:
-- Each task MUST perform exactly ONE action on exactly ONE entity-attribute pair.
-- Each task MUST be split into the smallest meaningful unit: one action, entity and attribute.
+- Each task MUST have one atomic objective: the objective and acceptance_criteria MUST reference EXACTLY ONE entity; any attribute, if present, MUST reference that entity only.
 - If required data is not available, create a prior task to obtain it.
 - If a task uses the output of prior tasks, list that task_id in depends_on.
+- Requested user-facing tasks (show/display) MUST be scheduled last unless the user explicitly specifies order (e.g., "first/before/after").
 
 Agent selection:
-- Email Agent: any email-related action (search, read, send).
+- Text Agent: language-only tasks (summarize/translate/format) and user-facing tasks (show/display/render).
+- Email Agent: email-related action (search, read, send).
 - Search Agent: requires time-sensitive or changeable information.
-- Text Agent: language-level tasks only (answer, summarize, translate, rewrite, format).
 
 Entity & placeholder constraints:
-- Use preserve_spans as is to resolve {{P0}}, {{P1}}, ... when writing objective and acceptance_criteria.
-- Do NOT introduce any concrete entities not present in the user input or preserve_spans.
+- Use preserve_spans only as-is (not {{P0}}, {{P1}} ...) in objective and acceptance_criteria.
+- Do NOT introduce concrete entities not explicitly mentioned in the user input or preserve_spans.
 
 Output constraints:
-- Except for items in preserve_spans, objective and acceptance_criteria MUST be written in English.
+- Except for items in preserve_spans, objective and acceptance_criteria MUST be in English.
 
 Output JSON only:
 {{
@@ -249,7 +251,7 @@ Output JSON only:
 
 
 class FinalAnswerGenerator():
-    def __init__(self, model_registry, model_name, remember_turn=2, max_generate_token=1024):
+    def __init__(self, model_registry:ModelRegistry, model_name, remember_turn=2, max_generate_token=1024):
         loaded = model_registry(model_name)       
         self.tokenizer = loaded.tokenizer
         self.model = loaded.model
@@ -259,18 +261,19 @@ class FinalAnswerGenerator():
     def build_system_prompt(self, language='Korean'):
         return f"""
 You are the Final Answer Generator.
-Produce the final user-facing response.
 
 Rules:
-- Use the provided context to answer the user's request.
-- If the user request is an action, respond with execution status.
-- If execution results are provided, use them as the primary source of truth.
-- If no execution results are provided, answer directly from the user input.
-- Do not mention internal steps, agents, or tools.
+- If the user requests text (e.g., answer, information, explanation), return the requested response.
+- If the user request involves performing external actions or modifying system state (e.g., sending, saving, updating):
+  - Default behavior: return only the status of the actions performed.
+  - Do NOT return generated content.
+  - EXCEPTION: If the user explicitly requests the content to be shown/displayed/presented, return that content.
+- If you return an action status and one or more requested contents, separate them using clear headings.
+- Never mention internal names or identifiers.
 
 Language policy:
 - If the user explicitly specifies an output language, use that language.
-- Otherwise, respond in {language}.
+- Otherwise, All responses must be in {language}.
 """.strip()
 
     def generate(self, user_input, history, language='Korean'):
@@ -301,7 +304,7 @@ Language policy:
 
 
 class Orchestrator:
-    def __init__(self, router:Router, planner:Planner, agents:list[Agents.Agent], finalizer:FinalAnswerGenerator):
+    def __init__(self, router:Router, planner:Planner, agents:dict[str, Agents.Agent], finalizer:FinalAnswerGenerator):
         self.agents = agents
         self.router = router
         self.planner = planner
@@ -350,7 +353,7 @@ class Orchestrator:
             dependent_results = self.get_dependent_results(task["depends_on"], task_results)
             if dependent_results:
                 dependent_results_string = functions.dumps_json(dependent_results)
-                input_string+=f"[Context]:\n{dependent_results_string}\n\n"
+                input_string+=f"[DEPENDENCIES]:\n{dependent_results_string}\n\n"
             task_string = functions.dumps_json({key:val for key, val in task.items() if key in ["objective", "depends_on", "acceptance_criteria"]})
             input_string += f"[TASK]:\n{task_string}"
             
@@ -362,6 +365,12 @@ class Orchestrator:
             print(f"Task Durations: {(end_time-start_time):.2f}\n")
 
             task_results[task["task_id"]] = agent_result
+
+            # 실패하면 종료
+            if isinstance(agent_result, dict):
+                agent_success = agent_result.get("ok", True)
+                if not agent_success:
+                    break
         
         return task_results
 
@@ -372,10 +381,10 @@ class Orchestrator:
         torch.cuda.empty_cache()
         with torch.no_grad():
             start_time = time()
-            router_output = self.run_router(user_input, history, language)
+            router_output = self.run_router(f"[User Input]:\n{user_input}", history, language)
             end_time = time()
             print(f"Route:\n{functions.dumps_json(router_output)}\n")
-            print(f"Durations: {(end_time-start_time):.2f}\n\n")
+            print(f"Routing Durations: {(end_time-start_time):.2f}\n\n")
 
             if router_output["route"]=="clarification":
                 return router_output["clarifying_question"]
@@ -391,7 +400,7 @@ class Orchestrator:
                 print(f"Planning Durations: {(end_time-start_time):.2f}\n\n")
                 
                 # 마지막 작업이 Text작업이면 하지않고 Finalizer로 보내기
-                if plan["tasks"][-1]["agent"].strip()=="Text Agent":
+                while plan["tasks"][-1]["agent"].strip()=="Text Agent":
                     plan["tasks"].pop()
 
                 start_time = time()
@@ -401,7 +410,9 @@ class Orchestrator:
                 print(f"Task Result:\n{functions.dumps_json(task_results)}\n")
                 print(f"Execute Total Plan Durations: {(end_time-start_time):.2f}\n\n")
 
-                total_input = f"[User Input]:\n{user_input}\n\n[Plan]:\n{functions.dumps_json(plan)}\n\n[Execution Result]:\n{functions.dumps_json(task_results)}".strip()
+                plan["tasks"] = [{key:val for key, val in t.items() if key.strip()!="acceptance_criteria"} for t in plan["tasks"]]
+                total_input = f"[User Input]:\n{user_input}\n\n[Execution Plan]:\n{functions.dumps_json(plan['tasks'])}\n\n[Execution Result]:\n{functions.dumps_json(task_results)}".strip()
+                print(f"!!!!!!!!!!!!!!!!!!! Final Input !!!!!!!!!!!!!!!!!!!\n{total_input}\n")
                 final_answer = self.finalizer.generate(user_input=total_input, history=history)
                 
                 return final_answer
