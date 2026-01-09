@@ -53,28 +53,28 @@ Available Agents:
 
 Step 1) Select using_agents:
 - Email operations (read/search/send) -> include "Email Agent"
-- Time-sensitive/changeable info (current/latest/recent, people/org roles, prices, rankings) -> include "Search Agent"
-- Text task (summarize/translate/rewrite/format) -> include "Text Agent"
+- Time-sensitive/changeable info (current/latest, people/org roles, rankings) -> include "Search Agent"
+- Text tasks (summarize/rewrite/format) -> include "Text Agent"
 
 Step 2) preserve_spans:
-- Extract each user-provided proper noun or identifier such as: person name, organization/service/app name, URL, ID, and file name.
-- Copy each string exactly as it appears in the user input.
-- Add once, in first-appearance order in the user input.
+- Extract each proper nouns or identifiers (e.g., people name, organization/service name, URL, ID, file name) from user input.
+- Copy each string exactly as-is.
+- Add once, in first-appearance order.
 
 Step 3) route ∈ {"direct","planner","clarification"}:
-- If required information to perform the requested action is missing OR a reference is ambiguous or unresolved:
+- If required information is missing or a reference is ambiguous:
   -> route="clarification" and write clarifying_question in {language}.
-- Else if using_agents contains "Email Agent" or "Search Agent"
+- Else if using_agents contains "Email Agent" or "Search Agent":
   -> route="planner".
-- Else
+- Else:
   -> route="direct".
 
 Step 4) high_level_intent:
 - Write in English.
 - If preserve_spans is non-empty:
   - Placeholders are written as {{P0}}, {{P1}}, ... in the same order as preserve_spans.
-  - high_level_intent MUST contain each placeholder; place placeholders only where semantically appropriate.
-  - Except for placeholders, preserve_spans MUST NOT appear in any other forms of high_level_intent (translations, romanizations, or paraphrases).
+  - high_level_intent MUST contain each placeholder.
+  - Except for placeholders, preserve_spans MUST NOT appear in any other forms (translations, romanizations, or paraphrases).
   - Except for placeholders, the entire high_level_intent MUST be in English.
 - NEVER mention the agent.
 
@@ -157,7 +157,7 @@ class Planner:
         agent_descript_str = "\n".join([f"- {name}: {agent.description}" for name, agent in self.available_agents.items()])
         return f"""
 You are the Planner.
-Create an execution plan in execution order in JSON only.
+Create an execution plan in execution order. Output JSON only.
 
 Available Agents:
 {agent_descript_str}
@@ -167,23 +167,22 @@ Input:
 - Router output: using_agents, high_level_intent, preserve_spans.
 
 Core rules:
-- Each task MUST perform exactly ONE action on exactly ONE entity-attribute pair.
-- Each task MUST be split into the smallest meaningful unit: one action, entity and attribute.
+- Each task MUST have one atomic objective: the objective and acceptance_criteria MUST reference EXACTLY ONE entity; any attribute, if present, MUST reference that entity only.
 - If required data is not available, create a prior task to obtain it.
 - If a task uses the output of prior tasks, list that task_id in depends_on.
-- Any user-facing tasks (show/display) MUST be scheduled last unless the user explicitly specifies an earlier order (e.g., "first/before/after").
+- Requested user-facing tasks (show/display) MUST be scheduled last unless the user explicitly specifies order (e.g., "first/before/after").
 
 Agent selection:
-- Text Agent: language-only tasks (summarize/translate/rewrite/format) and user-facing tasks (show/display/present/print/render).
-- Email Agent: any email-related action (search, read, send).
+- Text Agent: language-only tasks (summarize/translate/format) and user-facing tasks (show/display/render).
+- Email Agent: email-related action (search, read, send).
 - Search Agent: requires time-sensitive or changeable information.
 
 Entity & placeholder constraints:
-- Use preserve_spans as is instead of {{P0}}, {{P1}}, ... when writing objective and acceptance_criteria.
-- Do NOT introduce any concrete entities that are not explicitly mentioned in the user input or preserve_spans.
+- Use preserve_spans only as-is (not {{P0}}, {{P1}} ...) in objective and acceptance_criteria.
+- Do NOT introduce concrete entities not explicitly mentioned in the user input or preserve_spans.
 
 Output constraints:
-- Except for items in preserve_spans, objective and acceptance_criteria MUST be written in English.
+- Except for items in preserve_spans, objective and acceptance_criteria MUST be in English.
 
 Output JSON only:
 {{
@@ -395,7 +394,7 @@ class Orchestrator:
 
             elif router_output["route"]=="planner":
                 start_time = time()
-                plan = self.run_planner(f"[User Input]:\n{user_input}", router_output, history, language)
+                plan = self.run_planner(user_input, router_output, history, language)
                 end_time = time()
                 print(f"Plan:\n{functions.dumps_json(plan)}\n")
                 print(f"Planning Durations: {(end_time-start_time):.2f}\n\n")

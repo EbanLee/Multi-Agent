@@ -29,7 +29,7 @@ class SearchAgent(Agent):
     name = "Search Agent"
     description = "search information from the web."
 
-    def __init__(self, model_registry, model_name, remember_turn=2, max_generate_token=256, max_repeat=3):
+    def __init__(self, model_registry, model_name, remember_turn=2, max_generate_token=256, max_repeat=4):
         loaded = model_registry(model_name)
         self.tokenizer = loaded.tokenizer
         self.model = loaded.model
