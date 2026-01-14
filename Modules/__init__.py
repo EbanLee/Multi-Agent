@@ -357,12 +357,12 @@ class Orchestrator:
             task_string = functions.dumps_json({key:val for key, val in task.items() if key in ["objective", "depends_on", "acceptance_criteria"]})
             input_string += f"[TASK]:\n{task_string}"
             
-            print(f"\n------------------------------------ TASK {i+1} ------------------------------------\n{task['agent']}")
+            # print(f"\n------------------------------------ TASK {i+1} ------------------------------------\n{task['agent']}")
             start_time = time()
             agent_result = self.run_agent(task["agent"], input_string.strip(), history, language)
             end_time = time()
-            print(f"{agent_result=}\n")
-            print(f"Task Durations: {(end_time-start_time):.2f}\n")
+            # print(f"{agent_result=}\n")
+            # print(f"Task Durations: {(end_time-start_time):.2f}\n")
 
             task_results[task["task_id"]] = agent_result
 
@@ -383,8 +383,8 @@ class Orchestrator:
             start_time = time()
             router_output = self.run_router(f"[User Input]:\n{user_input}", history, language)
             end_time = time()
-            print(f"Route:\n{functions.dumps_json(router_output)}\n")
-            print(f"Routing Durations: {(end_time-start_time):.2f}\n\n")
+            # print(f"Route:\n{functions.dumps_json(router_output)}\n")
+            # print(f"Routing Durations: {(end_time-start_time):.2f}\n\n")
 
             if router_output["route"]=="clarification":
                 return router_output["clarifying_question"]
@@ -396,8 +396,8 @@ class Orchestrator:
                 start_time = time()
                 plan = self.run_planner(user_input, router_output, history, language)
                 end_time = time()
-                print(f"Plan:\n{functions.dumps_json(plan)}\n")
-                print(f"Planning Durations: {(end_time-start_time):.2f}\n\n")
+                # print(f"Plan:\n{functions.dumps_json(plan)}\n")
+                # print(f"Planning Durations: {(end_time-start_time):.2f}\n\n")
                 
                 # 마지막 작업이 Text작업이면 하지않고 Finalizer로 보내기
                 while plan["tasks"][-1]["agent"].strip()=="Text Agent":
@@ -407,12 +407,12 @@ class Orchestrator:
                 task_results = self.execute_plans(plan, history, language)
                 end_time = time()
                 
-                print(f"Task Result:\n{functions.dumps_json(task_results)}\n")
-                print(f"Execute Total Plan Durations: {(end_time-start_time):.2f}\n\n")
+                # print(f"Task Result:\n{functions.dumps_json(task_results)}\n")
+                # print(f"Execute Total Plan Durations: {(end_time-start_time):.2f}\n\n")
 
                 plan["tasks"] = [{key:val for key, val in t.items() if key.strip()!="acceptance_criteria"} for t in plan["tasks"]]
                 total_input = f"[User Input]:\n{user_input}\n\n[Execution Plan]:\n{functions.dumps_json(plan['tasks'])}\n\n[Execution Result]:\n{functions.dumps_json(task_results)}".strip()
-                print(f"!!!!!!!!!!!!!!!!!!! Final Input !!!!!!!!!!!!!!!!!!!\n{total_input}\n")
+                # print(f"!!!!!!!!!!!!!!!!!!! Final Input !!!!!!!!!!!!!!!!!!!\n{total_input}\n")
                 final_answer = self.finalizer.generate(user_input=total_input, history=history)
                 
                 return final_answer
