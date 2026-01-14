@@ -10,7 +10,7 @@ import Modules.Agents as Agents
 from tools import email_tool
 
 config = file_utils.read_yaml("config.yaml")
-print(config)
+# print(config)
 
 search_agent = Agents.SearchAgent(model_name=config['search_agent_model_name'])
 
