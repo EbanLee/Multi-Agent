@@ -63,7 +63,7 @@ Step 2) preserve_spans:
 
 Step 3) route ∈ {"direct","planner","clarification"}:
 - If required info is missing or ambiguous:
-  -> route="clarification" and write clarifying_question in {language}.
+  -> route="clarification" and write question for clarification in {language} in the clarifying_question field.
 - Else determine if the request implies 2+ atomic tasks:
   - Multi-action: 2+ actions are required (e.g., read + send, search + summarize) -> route="planner".
   - Multi-entity: if the same attribute/action is requested for 2+ distinct entities -> route="planner".
@@ -124,9 +124,9 @@ Step 4) high_level_intent:
                         "content": output_text,
                     }
                 ]
-            print("\n---------------------------- [OUTPUT] ----------------------------\n")
-            print(output_text)
-            print(f"{len(generated_output)=}\n")
+            # print("\n---------------------------- [OUTPUT] ----------------------------\n")
+            # print(output_text)
+            # print(f"{len(generated_output)=}\n")
             try:
                 output_dict = functions.loads_json(output_text)
             except Exception:
