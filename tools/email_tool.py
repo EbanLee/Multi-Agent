@@ -6,8 +6,8 @@ import email
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from email.header import decode_header
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+from email.header import Header
+from email.message import EmailMessage
 from email.utils import parseaddr
 
 from tools import Tool
@@ -501,24 +501,25 @@ class EmailSendTool:
         cc = cc or []
 
         # (1) 멀티파트 메일 컨테이너(본문/첨부를 담는 봉투)
-        msg = MIMEMultipart()
+        msg = EmailMessage()
         msg["From"] = self.email_addr
         msg["To"] = ", ".join(to)
         if cc:
             msg["Cc"] = ", ".join(cc)
-        msg["Subject"] = subject
 
-        # (2) 텍스트 본문 파트 생성 후 봉투에 attach
-        msg.attach(MIMEText(body_text, "plain", "utf-8"))
+        msg["Subject"] = str(Header(subject, "utf-8"))
+        msg.set_content(body_text, charset="utf-8")
 
-        # (3) 실제 전송 대상 목록(to + cc)
         rcpt = list(to) + list(cc)
 
-        # (4) SMTP 연결 및 발송
         with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-            server.starttls()  # 평문 → TLS(암호화) 전환
+            server.starttls()
             server.login(self.email_addr, self.app_password)
-            server.sendmail(self.email_addr, rcpt, msg.as_string())
+            server.send_message(
+                msg,
+                from_addr=self.email_addr,
+                to_addrs=rcpt
+            )
 
         return {"ok": True, "sent_to": rcpt, "subject": subject}
 

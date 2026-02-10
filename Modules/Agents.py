@@ -52,7 +52,7 @@ You can use the following tool:
 Rule:
 - Each search MUST target exactly ONE entity-attribute pair.
 - When action is not "finish", the "result" MUST be empty.
-- When action is "finish", write the synthesized fact only in "result". Do not explain, summarize, or interpret.
+- When action is "finish", write only the overall comprehensive information in "result". NEVER explain, summarize, or interpret.
 - If the retrieved information is insufficient, revise the search query and try again.
 - Output EXACTLY one valid JSON object and nothing else.
 
