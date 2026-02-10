@@ -197,7 +197,7 @@ Agent selection:
 - Search Agent: requires time-sensitive or changeable information.
 
 Entity & placeholder constraints:
-- Use preserve_spans only as-is (not {{P0}}, {{P1}} ...) in objective and acceptance_criteria.
+- Just use preserve_spans only as-is instead of placeholder ({{P0}}, {{P1}} ...) in objective and acceptance_criteria.
 - Do NOT introduce concrete entities not explicitly mentioned in the user input or preserve_spans.
 
 Output constraints:
