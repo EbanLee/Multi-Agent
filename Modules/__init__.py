@@ -52,20 +52,21 @@ Available Agents:
 {agent_descript_str}
 
 Step 1) Select using_agents:
-- Email operations (read/search/send) -> include "Email Agent"
-- Time-sensitive/changeable info (current/latest, people/org roles, rankings) -> include "Search Agent"
-- Text tasks (summarize/rewrite/format) -> include "Text Agent"
+- Email operations (e.g., read/search/send) -> include "Email Agent"
+- The user input contains any temporal keywords (e.g., current/latest/recently) or time-sensitive/changeable info is required (e.g., people/org, rankings). -> include "Search Agent"
+- Any text task (e.g., summarize/write/format) is required or contained in the user input -> include "Text Agent"
 
 Step 2) preserve_spans:
-- Extract each proper nouns or identifiers (e.g., people name, organization/service name, URL, ID, file name) from user input.
+- Extract each proper nouns or identifiers (e.g., person/organization/service name, URL, ID, file name) from user input.
 - Copy each string exactly as-is.
 - Add once, in first-appearance order.
 
 Step 3) route ∈ {"direct","planner","clarification"}:
-- If required information is missing or a reference is ambiguous:
-  -> route="clarification" and write clarifying_question in {language}.
-- Else if using_agents contains "Email Agent" or "Search Agent":
-  -> route="planner".
+- If required info is missing or ambiguous:
+  -> route="clarification" and write question for clarification in {language} in the clarifying_question field.
+- Else determine if the request implies 2+ atomic tasks:
+  - Multi-action: 2+ actions are required (e.g., read + send, search + summarize) -> route="planner".
+  - Multi-entity: if the same attribute/action is requested for 2+ distinct entities -> route="planner".
 - Else:
   -> route="direct".
 
@@ -73,8 +74,8 @@ Step 4) high_level_intent:
 - Write in English.
 - If preserve_spans is non-empty:
   - Placeholders are written as {{P0}}, {{P1}}, ... in the same order as preserve_spans.
-  - high_level_intent MUST contain each placeholder.
-  - Except for placeholders, preserve_spans MUST NOT appear in any other forms (translations, romanizations, or paraphrases).
+  - high_level_intent MUST contain each placeholder {{P0}}..{{Pn}}.
+  - Except for placeholders, preserve_spans MUST NOT appear in any other forms(as-is, translations, romanizations, or paraphrases) in high_level_intent.
   - Except for placeholders, the entire high_level_intent MUST be in English.
 - NEVER mention the agent.
 
@@ -84,7 +85,7 @@ Step 4) high_level_intent:
   "clarifying_question": "",
   "using_agents": [],
   "preserve_spans": [],
-  "high_level_intent": ""
+  "high_level_intent": ""  
 }}
 """.strip()
 
@@ -128,7 +129,6 @@ Step 4) high_level_intent:
             # print(f"{len(generated_output)=}\n")
             try:
                 output_dict = functions.loads_json(output_text)
-                break
             except Exception:
                 messages += [
                     {
@@ -136,6 +136,25 @@ Step 4) high_level_intent:
                         "content": f"Not JSON. Respond again with ONLY one JSON object.",
                     }
                 ]
+                continue
+
+            if output_dict["preserve_spans"] and "{P0}" not in output_dict["high_level_intent"]:
+                add_prompt = f"Write the words in preserve_spans to high_level_intent using placeholders."
+                if messages[-1]["role"]=="user":
+                    messages[-1]["content"]+=add_prompt
+                else:
+                    messages += [
+                        {
+                            "role": "user",
+                            "content": add_prompt,
+                        }
+                    ]
+            else:
+                break
+
+        if len(output_dict["using_agents"])>=2:
+            output_dict["route"] = "planner"
+
 
         # Place holder code로 변환
         for i, preserve_span in sorted(enumerate(output_dict["preserve_spans"]), key=lambda x: -len(x[1])):
@@ -173,12 +192,12 @@ Core rules:
 - Requested user-facing tasks (show/display) MUST be scheduled last unless the user explicitly specifies order (e.g., "first/before/after").
 
 Agent selection:
-- Text Agent: language-only tasks (summarize/translate/format) and user-facing tasks (show/display/render).
+- Text Agent: language-only tasks (summarize/translate/write) and user-facing tasks (show/display/render).
 - Email Agent: email-related action (search, read, send).
 - Search Agent: requires time-sensitive or changeable information.
 
 Entity & placeholder constraints:
-- Use preserve_spans only as-is (not {{P0}}, {{P1}} ...) in objective and acceptance_criteria.
+- Just use preserve_spans only as-is instead of placeholder ({{P0}}, {{P1}} ...) in objective and acceptance_criteria.
 - Do NOT introduce concrete entities not explicitly mentioned in the user input or preserve_spans.
 
 Output constraints:
@@ -357,12 +376,12 @@ class Orchestrator:
             task_string = functions.dumps_json({key:val for key, val in task.items() if key in ["objective", "depends_on", "acceptance_criteria"]})
             input_string += f"[TASK]:\n{task_string}"
             
-            # print(f"\n------------------------------------ TASK {i+1} ------------------------------------\n{task['agent']}")
+            print(f"\n------------------------------------ TASK {i+1} ------------------------------------\n{task['agent']}")
             start_time = time()
             agent_result = self.run_agent(task["agent"], input_string.strip(), history, language)
             end_time = time()
-            # print(f"{agent_result=}\n")
-            # print(f"Task Durations: {(end_time-start_time):.2f}\n")
+            print(f"{agent_result=}\n")
+            print(f"Task Durations: {(end_time-start_time):.2f}\n")
 
             task_results[task["task_id"]] = agent_result
 
@@ -383,8 +402,8 @@ class Orchestrator:
             start_time = time()
             router_output = self.run_router(f"[User Input]:\n{user_input}", history, language)
             end_time = time()
-            # print(f"Route:\n{functions.dumps_json(router_output)}\n")
-            # print(f"Routing Durations: {(end_time-start_time):.2f}\n\n")
+            print(f"Route:\n{functions.dumps_json(router_output)}\n")
+            print(f"Routing Durations: {(end_time-start_time):.2f}\n\n")
 
             if router_output["route"]=="clarification":
                 return router_output["clarifying_question"]
@@ -396,8 +415,8 @@ class Orchestrator:
                 start_time = time()
                 plan = self.run_planner(user_input, router_output, history, language)
                 end_time = time()
-                # print(f"Plan:\n{functions.dumps_json(plan)}\n")
-                # print(f"Planning Durations: {(end_time-start_time):.2f}\n\n")
+                print(f"Plan:\n{functions.dumps_json(plan)}\n")
+                print(f"Planning Durations: {(end_time-start_time):.2f}\n\n")
                 
                 # 마지막 작업이 Text작업이면 하지않고 Finalizer로 보내기
                 while plan["tasks"][-1]["agent"].strip()=="Text Agent":
@@ -407,12 +426,12 @@ class Orchestrator:
                 task_results = self.execute_plans(plan, history, language)
                 end_time = time()
                 
-                # print(f"Task Result:\n{functions.dumps_json(task_results)}\n")
-                # print(f"Execute Total Plan Durations: {(end_time-start_time):.2f}\n\n")
+                print(f"Task Result:\n{functions.dumps_json(task_results)}\n")
+                print(f"Execute Total Plan Durations: {(end_time-start_time):.2f}\n\n")
 
                 plan["tasks"] = [{key:val for key, val in t.items() if key.strip()!="acceptance_criteria"} for t in plan["tasks"]]
                 total_input = f"[User Input]:\n{user_input}\n\n[Execution Plan]:\n{functions.dumps_json(plan['tasks'])}\n\n[Execution Result]:\n{functions.dumps_json(task_results)}".strip()
-                # print(f"!!!!!!!!!!!!!!!!!!! Final Input !!!!!!!!!!!!!!!!!!!\n{total_input}\n")
+                print(f"!!!!!!!!!!!!!!!!!!! Final Input !!!!!!!!!!!!!!!!!!!\n{total_input}\n")
                 final_answer = self.finalizer.generate(user_input=total_input, history=history)
                 
                 return final_answer

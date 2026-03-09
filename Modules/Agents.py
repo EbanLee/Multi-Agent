@@ -52,7 +52,7 @@ You can use the following tool:
 Rule:
 - Each search MUST target exactly ONE entity-attribute pair.
 - When action is not "finish", the "result" MUST be empty.
-- When action is "finish", write the synthesized fact only in "result". Do not explain, summarize, or interpret.
+- When action is "finish", write only the overall comprehensive information in "result". NEVER explain, summarize, or interpret.
 - If the retrieved information is insufficient, revise the search query and try again.
 - Output EXACTLY one valid JSON object and nothing else.
 
@@ -303,9 +303,9 @@ Output MUST be exactly one JSON and nothing else:
 
             generated_output = output[0][len(inputs.input_ids[0]):].tolist()
             output_text = self.tokenizer.decode(generated_output, skip_special_tokens=True)
-            # print(f"\n---------------------------- [STEP_{step+1} OUTPUT] ----------------------------\n")
-            # print(output_text)
-            # print(f"{len(generated_output)=}\n")
+            print(f"\n---------------------------- [STEP_{step+1} OUTPUT] ----------------------------\n")
+            print(output_text)
+            print(f"{len(generated_output)=}\n")
 
             messages.append({'role':'assistant', 'content':output_text})
 
@@ -332,7 +332,7 @@ Output MUST be exactly one JSON and nothing else:
             try:
                 observation = self.tool_registry[tool_name](**tool_args)
                 result.append(copy.deepcopy(observation))
-                # print("---------- OBSERVATION ---------- \n", observation, "\n")
+                print("---------- OBSERVATION ---------- \n", observation, "\n")
             except Exception as e:
                 observation = {
                     "ok": False,
